@@ -1,0 +1,31 @@
+[project]
+name = "f1-sql-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "nmz325", email = "nahuelms325@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "duckdb>=2.0.0",
+    "python-dotenv>=1.2.4",
+]
+
+[project.scripts]
+f1-sql-agent = "f1_sql_agent:main"
+
+[build-system]
+requires = ["uv_build>=0.13.5,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.17.3",
+]
+
+[tool.ruff.lint]
+# Keep ruff's default rules and add import sorting (I),
+# modern syntax upgrades (UP) and common bug patterns (B)
+extend-select = ["I", "UP", "B"]
