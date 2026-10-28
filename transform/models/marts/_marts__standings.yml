@@ -1,0 +1,92 @@
+models:
+  - name: fct_driver_standings
+    description: >
+      Drivers' championship standings after each race (cumulative within the season).
+      For the final standings of a season join dim_race and filter is_season_finale;
+      the champion has championship_position = 1.
+    config:
+      contract:
+        enforced: true
+    constraints:
+      - type: unique
+        columns: [race_id, driver_id]
+    columns:
+      - name: driver_standing_id
+        description: Unique identifier of the standings row.
+        data_type: integer
+        constraints:
+          - type: primary_key
+        data_tests: [unique, not_null]
+      - name: race_id
+        description: Race after which these standings apply.
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_race')
+                field: race_id
+      - name: driver_id
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_driver')
+                field: driver_id
+      - name: championship_points
+        description: Points accumulated in the season up to and including this race.
+        data_type: double
+      - name: championship_position
+        description: Position in the drivers' championship after this race.
+        data_type: integer
+      - name: championship_position_text
+        description: Position as text; may contain a letter code such as 'D' (disqualified).
+        data_type: varchar
+      - name: wins_to_date
+        description: Race wins in the season up to and including this race.
+        data_type: integer
+
+  - name: fct_constructor_standings
+    description: >
+      Constructors' championship standings after each race (cumulative within the
+      season). The constructors' championship exists since 1958. For final standings
+      join dim_race and filter is_season_finale.
+    config:
+      contract:
+        enforced: true
+    constraints:
+      - type: unique
+        columns: [race_id, constructor_id]
+    columns:
+      - name: constructor_standing_id
+        description: Unique identifier of the standings row.
+        data_type: integer
+        constraints:
+          - type: primary_key
+        data_tests: [unique, not_null]
+      - name: race_id
+        description: Race after which these standings apply.
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_race')
+                field: race_id
+      - name: constructor_id
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_constructor')
+                field: constructor_id
+      - name: championship_points
+        description: Points accumulated in the season up to and including this race.
+        data_type: double
+      - name: championship_position
+        description: Position in the constructors' championship after this race.
+        data_type: integer
+      - name: championship_position_text
+        description: Position as text; may contain a letter code.
+        data_type: varchar
+      - name: wins_to_date
+        description: Race wins in the season up to and including this race.
+        data_type: integer

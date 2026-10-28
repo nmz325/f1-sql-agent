@@ -1,0 +1,254 @@
+models:
+  - name: fct_sprint_results
+    description: >
+      One row per sprint entry (driver, car and race weekend). Sprints started in
+      2021. Sprint wins are not Grand Prix wins: use fct_race_results for those.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: sprint_result_id
+        description: Unique identifier of the sprint entry.
+        data_type: integer
+        constraints:
+          - type: primary_key
+        data_tests: [unique, not_null]
+      - name: race_id
+        description: Race weekend of the sprint.
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_race')
+                field: race_id
+      - name: driver_id
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_driver')
+                field: driver_id
+      - name: constructor_id
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_constructor')
+                field: constructor_id
+      - name: car_number
+        data_type: integer
+      - name: grid_position
+        description: Starting position on the sprint grid.
+        data_type: integer
+      - name: finish_position
+        description: Official sprint finishing position. NULL when the driver was not classified.
+        data_type: integer
+      - name: position_order
+        description: Order of the entry in the official sprint result. Use it to sort.
+        data_type: integer
+      - name: position_text
+        description: Source code, the position as text or a letter code explained by result_type.
+        data_type: varchar
+      - name: result_type
+        description: classified, retired, not_classified, disqualified, excluded, failed_to_qualify or withdrawn.
+        data_type: varchar
+        constraints:
+          - type: not_null
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [classified, retired, not_classified, disqualified, excluded, failed_to_qualify, withdrawn]
+      - name: is_sprint_start
+        description: True if the driver took the start of the sprint.
+        data_type: boolean
+        constraints:
+          - type: not_null
+      - name: is_classified
+        description: True if the driver has an official sprint finishing position.
+        data_type: boolean
+        constraints:
+          - type: not_null
+      - name: is_sprint_win
+        description: True if the driver won the sprint.
+        data_type: boolean
+        constraints:
+          - type: not_null
+      - name: points
+        description: Championship points scored in the sprint.
+        data_type: double
+      - name: laps_completed
+        data_type: integer
+      - name: sprint_time_ms
+        description: Total sprint time in milliseconds. Only for classified drivers on the lead lap.
+        data_type: bigint
+      - name: fastest_lap_number
+        data_type: integer
+      - name: fastest_lap_time_ms
+        description: Driver's fastest sprint lap in milliseconds.
+        data_type: integer
+      - name: status
+        description: Final status, e.g. 'Finished', '+1 Lap', 'Collision'.
+        data_type: varchar
+      - name: gap_to_winner_ms
+        description: Time behind the sprint winner in milliseconds (0 for the winner).
+        data_type: bigint
+
+  - name: fct_qualifying
+    description: >
+      One row per driver and race qualifying. Pole position is qualifying_position = 1.
+      The actual starting position can differ because of grid penalties: use
+      fct_race_results.grid_position for it. Q2 and Q3 only exist since the knockout
+      format introduced in 2006.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: qualifying_id
+        description: Unique identifier of the qualifying entry.
+        data_type: integer
+        constraints:
+          - type: primary_key
+        data_tests: [unique, not_null]
+      - name: race_id
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_race')
+                field: race_id
+      - name: driver_id
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_driver')
+                field: driver_id
+      - name: constructor_id
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_constructor')
+                field: constructor_id
+      - name: car_number
+        data_type: integer
+      - name: qualifying_position
+        description: Final qualifying position (1 = pole position).
+        data_type: integer
+      - name: is_pole
+        description: True if the driver took pole position.
+        data_type: boolean
+        constraints:
+          - type: not_null
+      - name: q1_time_ms
+        description: Best lap time in Q1 (or the single session before 2006), in milliseconds.
+        data_type: integer
+      - name: q2_time_ms
+        description: Best lap time in Q2 in milliseconds. NULL if the driver did not take part.
+        data_type: integer
+      - name: q3_time_ms
+        description: Best lap time in Q3 in milliseconds. NULL if the driver did not take part.
+        data_type: integer
+      - name: best_time_ms
+        description: Fastest of q1, q2 and q3 for this driver, in milliseconds.
+        data_type: integer
+
+  - name: fct_lap_times
+    description: >
+      One row per driver, race and lap, with the lap time in milliseconds.
+      Not available for the early decades of the championship.
+    config:
+      contract:
+        enforced: true
+    constraints:
+      - type: primary_key
+        columns: [race_id, driver_id, lap_number]
+    columns:
+      - name: race_id
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_race')
+                field: race_id
+      - name: driver_id
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_driver')
+                field: driver_id
+      - name: constructor_id
+        description: Team the driver raced for in this race.
+        data_type: integer
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_constructor')
+                field: constructor_id
+      - name: lap_number
+        data_type: integer
+      - name: position_on_lap
+        description: Driver's race position at the end of this lap.
+        data_type: integer
+      - name: lap_time_ms
+        description: Lap time in milliseconds.
+        data_type: integer
+
+  - name: fct_pit_stops
+    description: >
+      One row per pit stop. pit_stop_duration_ms is the time spent in the pit lane,
+      not only the stationary time. Stops during red flags can last several minutes,
+      so exclude them (e.g. pit_stop_duration_ms < 60000) for typical pit stop analysis.
+    config:
+      contract:
+        enforced: true
+    constraints:
+      - type: primary_key
+        columns: [race_id, driver_id, stop_number]
+    columns:
+      - name: race_id
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_race')
+                field: race_id
+      - name: driver_id
+        data_type: integer
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_driver')
+                field: driver_id
+      - name: constructor_id
+        description: Team the driver raced for in this race.
+        data_type: integer
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_constructor')
+                field: constructor_id
+      - name: stop_number
+        description: Sequence of the stop for this driver in the race, starting at 1.
+        data_type: integer
+      - name: lap_number
+        description: Lap on which the stop was made.
+        data_type: integer
+      - name: pit_stop_duration_ms
+        description: Time spent in the pit lane in milliseconds.
+        data_type: integer
