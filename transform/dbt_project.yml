@@ -18,6 +18,10 @@ models:
     marts:
       +schema: marts
       +materialized: table
+      # Store YAML descriptions as DuckDB comments, readable by the agent.
+      +persist_docs:
+        relation: true
+        columns: true
 
 seeds:
   f1_sql_agent:

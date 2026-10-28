@@ -1,0 +1,229 @@
+models:
+  - name: dim_driver
+    description: One row per driver who has entered a Formula 1 World Championship race.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: driver_id
+        description: Unique identifier of the driver.
+        data_type: integer
+        constraints:
+          - type: primary_key
+        data_tests: [unique, not_null]
+      - name: driver_ref
+        description: Stable text identifier of the driver, e.g. 'hamilton'.
+        data_type: varchar
+      - name: driver_code
+        description: Three-letter timing code, e.g. 'HAM'. NULL for many drivers of earlier eras.
+        data_type: varchar
+      - name: permanent_number
+        description: Permanent car number (introduced in 2014). NULL if the driver never had one.
+        data_type: integer
+      - name: first_name
+        data_type: varchar
+      - name: last_name
+        data_type: varchar
+      - name: full_name
+        description: First and last name, e.g. 'Lewis Hamilton'. Use it to look up drivers by name.
+        data_type: varchar
+      - name: date_of_birth
+        data_type: date
+      - name: driver_nationality
+        description: Nationality as a demonym, e.g. 'British', 'German'.
+        data_type: varchar
+
+  - name: dim_constructor
+    description: One row per constructor (team).
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: constructor_id
+        description: Unique identifier of the constructor.
+        data_type: integer
+        constraints:
+          - type: primary_key
+        data_tests: [unique, not_null]
+      - name: constructor_ref
+        description: Stable text identifier of the constructor, e.g. 'ferrari'.
+        data_type: varchar
+      - name: constructor_name
+        description: Team name, e.g. 'Ferrari', 'Red Bull'.
+        data_type: varchar
+      - name: constructor_nationality
+        description: Nationality as a demonym, e.g. 'Italian', 'Austrian'.
+        data_type: varchar
+
+  - name: dim_race
+    description: >
+      One row per World Championship race (Grand Prix), with its circuit.
+      Seasons 1950 to 2024.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: race_id
+        description: Unique identifier of the race.
+        data_type: integer
+        constraints:
+          - type: primary_key
+        data_tests: [unique, not_null]
+      - name: season
+        description: Championship year, e.g. 2024.
+        data_type: integer
+      - name: round
+        description: Order of the race within its season, starting at 1.
+        data_type: integer
+      - name: race_name
+        description: Official name, e.g. 'Belgian Grand Prix'. Repeats every season.
+        data_type: varchar
+      - name: race_date
+        data_type: date
+      - name: is_season_finale
+        description: >
+          True for the last race of its season. Championship standings after this
+          race are the final standings, so this flag identifies the champions.
+        data_type: boolean
+      - name: has_sprint
+        description: True if the race weekend included a sprint race.
+        data_type: boolean
+      - name: circuit_id
+        data_type: integer
+      - name: circuit_ref
+        description: Stable text identifier of the circuit, e.g. 'spa'.
+        data_type: varchar
+      - name: circuit_name
+        description: Circuit name, e.g. 'Circuit de Spa-Francorchamps'.
+        data_type: varchar
+        data_tests: [not_null]
+      - name: circuit_locality
+        description: City or area where the circuit is located.
+        data_type: varchar
+      - name: circuit_country
+        description: Country where the circuit is located.
+        data_type: varchar
+      - name: circuit_latitude
+        data_type: double
+      - name: circuit_longitude
+        data_type: double
+      - name: circuit_altitude_m
+        description: Altitude of the circuit in meters.
+        data_type: integer
+
+  - name: fct_race_results
+    description: >
+      One row per race entry (driver, car and race). Includes entries that did
+      not start (is_race_start = false) and, in the 1950s, several rows for the
+      same driver and race when cars were shared. To count races started by a
+      driver use count(distinct race_id) filtered by is_race_start.
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: result_id
+        description: Unique identifier of the race entry.
+        data_type: integer
+        constraints:
+          - type: primary_key
+        data_tests: [unique, not_null]
+      - name: race_id
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_race')
+                field: race_id
+      - name: driver_id
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_driver')
+                field: driver_id
+      - name: constructor_id
+        data_type: integer
+        constraints:
+          - type: not_null
+        data_tests:
+          - relationships:
+              arguments:
+                to: ref('dim_constructor')
+                field: constructor_id
+      - name: car_number
+        data_type: integer
+      - name: grid_position
+        description: Starting grid position. 0 means a pit lane start or no grid slot.
+        data_type: integer
+      - name: finish_position
+        description: Official finishing position. NULL when the driver was not classified.
+        data_type: integer
+      - name: position_order
+        description: Order of the entry in the official result, including non-classified entries. Use it to sort.
+        data_type: integer
+      - name: position_text
+        description: Source code, the position as text or a letter code explained by result_type.
+        data_type: varchar
+      - name: result_type
+        description: >
+          classified, retired, not_classified, disqualified, excluded,
+          failed_to_qualify or withdrawn.
+        data_type: varchar
+        constraints:
+          - type: not_null
+        data_tests:
+          - accepted_values:
+              arguments:
+                values: [classified, retired, not_classified, disqualified, excluded, failed_to_qualify, withdrawn]
+      - name: is_race_start
+        description: True if the driver took the start. False for failed_to_qualify and withdrawn.
+        data_type: boolean
+        constraints:
+          - type: not_null
+      - name: is_classified
+        description: True if the driver has an official finishing position.
+        data_type: boolean
+        constraints:
+          - type: not_null
+      - name: is_win
+        description: True if finish_position = 1.
+        data_type: boolean
+        constraints:
+          - type: not_null
+      - name: is_podium
+        description: True if finish_position is 1, 2 or 3.
+        data_type: boolean
+        constraints:
+          - type: not_null
+      - name: points
+        description: Championship points scored in this race.
+        data_type: double
+      - name: laps_completed
+        data_type: integer
+      - name: race_time_ms
+        description: >
+          Total race time in milliseconds. Only for classified drivers who finished
+          on the lead lap, NULL otherwise.
+        data_type: bigint
+      - name: gap_to_winner_ms
+        description: Time behind the official winner in milliseconds (0 for the winner).
+        data_type: bigint
+      - name: fastest_lap_number
+        description: Lap on which the driver set their fastest lap. Only for recent seasons.
+        data_type: integer
+      - name: fastest_lap_rank
+        description: Rank of the driver's fastest lap within the race (1 = fastest lap of the race).
+        data_type: integer
+      - name: fastest_lap_time_ms
+        description: Driver's fastest lap time in milliseconds.
+        data_type: integer
+      - name: fastest_lap_speed_kph
+        description: Average speed of the driver's fastest lap in km/h.
+        data_type: double
+      - name: status
+        description: Final status, e.g. 'Finished', '+1 Lap', 'Engine', 'Collision'.
+        data_type: varchar
