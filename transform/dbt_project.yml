@@ -18,3 +18,7 @@ models:
     marts:
       +schema: marts
       +materialized: table
+
+seeds:
+  f1_sql_agent:
+    +schema: seeds

@@ -1,0 +1,2 @@
+race_id,time_offset_ms,reason
+1134,4797040,"Source stores milliseconds as the gap to George Russell (disqualified, finished in 1:19:57.040); the offset restores total race times"

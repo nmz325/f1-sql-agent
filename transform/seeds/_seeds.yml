@@ -1,0 +1,31 @@
+seeds:
+  - name: result_codes
+    description: >
+      Meaning of the non-numeric position_text codes in results. Numeric codes
+      (finishing positions) are classified results and are handled in staging.
+    config:
+      column_types:
+        position_text: varchar
+        result_type: varchar
+        is_race_start: boolean
+        description: varchar
+    columns:
+      - name: position_text
+        data_tests:
+          - unique
+          - not_null
+
+  - name: race_time_corrections
+    description: >
+      Manual fixes for races whose milliseconds column is not a total race time.
+      race_time_ms = milliseconds + time_offset_ms for the listed races.
+    config:
+      column_types:
+        race_id: integer
+        time_offset_ms: bigint
+        reason: varchar
+    columns:
+      - name: race_id
+        data_tests:
+          - unique
+          - not_null

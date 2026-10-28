@@ -1,0 +1,7 @@
+position_text,result_type,is_race_start,description
+R,retired,true,Retired during the race
+N,not_classified,true,Took part but was not classified (insufficient distance)
+D,disqualified,true,Disqualified from the race result
+E,excluded,true,Excluded from the race result
+F,failed_to_qualify,false,Failed to qualify for the race (did not start)
+W,withdrawn,false,Withdrawn before the race (did not start)

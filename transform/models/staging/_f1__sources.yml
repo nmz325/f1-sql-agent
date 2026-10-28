@@ -1,0 +1,39 @@
+sources:
+  - name: f1
+    description: >
+      Raw CSV files of the Kaggle dataset "Formula 1 World Championship (1950 - 2024)"
+      (rohanrao, version 24), downloaded into data/raw by `uv run f1-download`.
+      Read as all-VARCHAR on purpose: types are assigned explicitly in staging.
+    meta:
+      external_location: "read_csv('../data/raw/{name}.csv', header = true, all_varchar = true, nullstr = '\\N')"
+    tables:
+      - name: circuits
+        description: One row per circuit.
+      - name: constructor_results
+        description: Points per constructor per race (not used downstream).
+      - name: constructor_standings
+        description: Constructors' championship standings after each race.
+      - name: constructors
+        description: One row per constructor (team).
+      - name: driver_standings
+        description: Drivers' championship standings after each race.
+      - name: drivers
+        description: One row per driver.
+      - name: lap_times
+        description: One row per driver, race and lap.
+      - name: pit_stops
+        description: One row per pit stop.
+      - name: qualifying
+        description: Qualifying results per driver and race.
+      - name: races
+        description: One row per race (Grand Prix).
+      - name: results
+        description: >
+          One row per race entry, not per start: includes drivers who failed to
+          qualify or withdrew, and the shared drives of the 1950s.
+      - name: seasons
+        description: One row per season (not used downstream).
+      - name: sprint_results
+        description: Sprint race results.
+      - name: status
+        description: Lookup of result status descriptions.
