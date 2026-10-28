@@ -28,3 +28,51 @@ models:
     columns:
       - name: status_id
         data_tests: [unique, not_null]
+
+  - name: stg_f1__results
+    description: >
+      Race results, one row per race entry (not per start). The source text
+      column `time` is dropped because it mixes total times and gaps.
+    columns:
+      - name: result_id
+        data_tests: [unique, not_null]
+
+  - name: stg_f1__sprint_results
+    description: Sprint results, one row per sprint entry.
+    columns:
+      - name: sprint_result_id
+        data_tests: [unique, not_null]
+
+  - name: stg_f1__qualifying
+    description: Qualifying results, one row per driver and race.
+    columns:
+      - name: qualifying_id
+        data_tests: [unique, not_null]
+
+  - name: stg_f1__lap_times
+    description: Lap times, one row per driver, race and lap (composite key enforced in marts).
+    columns:
+      - name: race_id
+        data_tests: [not_null]
+      - name: driver_id
+        data_tests: [not_null]
+
+  - name: stg_f1__pit_stops
+    description: Pit stops, one row per driver, race and stop (composite key enforced in marts).
+    columns:
+      - name: race_id
+        data_tests: [not_null]
+      - name: driver_id
+        data_tests: [not_null]
+
+  - name: stg_f1__driver_standings
+    description: Drivers' championship standings after each race.
+    columns:
+      - name: driver_standing_id
+        data_tests: [unique, not_null]
+
+  - name: stg_f1__constructor_standings
+    description: Constructors' championship standings after each race.
+    columns:
+      - name: constructor_standing_id
+        data_tests: [unique, not_null]
