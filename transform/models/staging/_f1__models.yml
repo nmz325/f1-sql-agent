@@ -1,0 +1,30 @@
+models:
+  - name: stg_f1__circuits
+    description: Circuits, one row per circuit.
+    columns:
+      - name: circuit_id
+        data_tests: [unique, not_null]
+
+  - name: stg_f1__constructors
+    description: Constructors (teams), one row per constructor.
+    columns:
+      - name: constructor_id
+        data_tests: [unique, not_null]
+
+  - name: stg_f1__drivers
+    description: Drivers, one row per driver.
+    columns:
+      - name: driver_id
+        data_tests: [unique, not_null]
+
+  - name: stg_f1__races
+    description: Races (Grands Prix), one row per race.
+    columns:
+      - name: race_id
+        data_tests: [unique, not_null]
+
+  - name: stg_f1__status
+    description: Result status descriptions, one row per status.
+    columns:
+      - name: status_id
+        data_tests: [unique, not_null]
