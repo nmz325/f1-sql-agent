@@ -16,3 +16,8 @@ wheels/
 data/
 *.duckdb
 *.duckdb.wal
+
+# dbt artifacts
+transform/target/
+transform/dbt_packages/
+transform/logs/

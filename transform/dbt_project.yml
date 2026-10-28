@@ -1,0 +1,20 @@
+name: f1_sql_agent
+version: "1.0.0"
+profile: f1_sql_agent
+
+# Opt out of dbt's anonymous usage tracking for everyone running this project.
+flags:
+  send_anonymous_usage_stats: false
+
+clean-targets:
+  - target
+  - dbt_packages
+
+models:
+  f1_sql_agent:
+    staging:
+      +schema: staging
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table

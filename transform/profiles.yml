@@ -1,0 +1,9 @@
+# Local DuckDB connection: no credentials, so this file is safe to version.
+# Run dbt from the transform/ folder: the default path is relative to it.
+f1_sql_agent:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: "{{ env_var('F1_DUCKDB_PATH', '../data/f1.duckdb') }}"
+      threads: 4
