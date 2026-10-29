@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 f1-download = "f1_sql_agent.ingest.download:main"
+f1-eval = "f1_sql_agent.evaluation:main"
 f1-mcp = "f1_sql_agent.mcp_server:main"
 f1-sql-agent = "f1_sql_agent:main"
 

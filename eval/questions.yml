@@ -1,0 +1,491 @@
+# Evaluation set: questions with a reference ("gold") SQL query and the expected
+# result, cross-checked against well-known F1 statistics. Never shown to the agent.
+#
+# - None of these questions may appear in semantic/examples.yml.
+# - `expected` lists only the values the question asks for, one list per row.
+#   The agent's result may have extra columns, but not extra or missing rows.
+# - `ordered: true` only when the order is part of the answer (rankings).
+# - Levels: 1 lookup, 2 aggregation, 3 multi-step / temporal, 4 window functions.
+# - Run `uv run f1-eval check` after changing the data, the models or this file.
+questions:
+  # --- Level 1: lookups (one fact, few joins) --------------------------------
+  - id: races_2024
+    level: 1
+    tags: [lookup]
+    question: How many Grand Prix were held in the 2024 season?
+    sql: |
+      SELECT count(*) AS races
+      FROM marts.dim_race
+      WHERE season = 2024
+    expected:
+      - [24]
+
+  - id: first_championship_race
+    level: 1
+    tags: [lookup, sorting]
+    question: Which circuit hosted the first World Championship Grand Prix, and on what date?
+    sql: |
+      SELECT circuit_name, race_date
+      FROM marts.dim_race
+      ORDER BY race_date
+      LIMIT 1
+    expected:
+      - [Silverstone Circuit, "1950-05-13"]
+
+  - id: constructors_champion_1998
+    level: 1
+    tags: [lookup, standings]
+    question: Which constructor won the 1998 constructors' championship?
+    sql: |
+      SELECT c.constructor_name
+      FROM marts.fct_constructor_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_constructor AS c USING (constructor_id)
+      WHERE r.season = 1998
+        AND r.is_season_finale
+        AND st.championship_position = 1
+    expected:
+      - [McLaren]
+
+  - id: pole_monaco_2023
+    level: 1
+    tags: [lookup, qualifying]
+    question: Who took pole position at the 2023 Monaco Grand Prix?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_qualifying AS q
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2023
+        AND r.race_name = 'Monaco Grand Prix'
+        AND q.is_pole
+    expected:
+      - [Max Verstappen]
+
+  - id: fastest_lap_italy_2019
+    level: 1
+    tags: [lookup, units]
+    question: >-
+      Who set the fastest lap of the 2019 Italian Grand Prix, and what was the
+      lap time in seconds?
+    sql: |
+      SELECT d.full_name, rr.fastest_lap_time_ms / 1000 AS fastest_lap_s
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2019
+        AND r.race_name = 'Italian Grand Prix'
+        AND rr.fastest_lap_rank = 1
+    expected:
+      - [Lewis Hamilton, 81.779]
+
+  - id: alonso_podiums
+    level: 1
+    tags: [metric, name_matching]
+    question: How many Grand Prix podiums does Fernando Alonso have?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_podium) AS podiums
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Fernando Alonso'
+    expected:
+      - [106]
+
+  # --- Level 2: aggregations, rankings, ratios --------------------------------
+  - id: top5_race_winners
+    level: 2
+    tags: [aggregation, ranking]
+    question: Which five drivers have won the most Grand Prix, and how many wins does each have?
+    ordered: true
+    sql: |
+      SELECT d.full_name, count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      GROUP BY d.full_name
+      ORDER BY wins DESC
+      LIMIT 5
+    expected:
+      - [Lewis Hamilton, 105]
+      - [Michael Schumacher, 91]
+      - [Max Verstappen, 63]
+      - [Sebastian Vettel, 53]
+      - [Alain Prost, 51]
+
+  - id: different_winners_2012
+    level: 2
+    tags: [aggregation, distinct]
+    question: How many different drivers won at least one Grand Prix in 2012?
+    sql: |
+      SELECT count(DISTINCT rr.driver_id) AS winners
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      WHERE r.season = 2012
+        AND rr.is_win
+    expected:
+      - [8]
+
+  - id: verstappen_win_rate
+    level: 2
+    tags: [metric, ratio, name_matching]
+    question: >-
+      What percentage of his Grand Prix starts has Max Verstappen won? Round it
+      to one decimal.
+    # Trap: "Verstappen" also matches his father Jos, who never won a race.
+    sql: |
+      SELECT round(
+                 100.0 * count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win)
+                 / count(DISTINCT rr.race_id) FILTER (WHERE rr.is_race_start),
+                 1) AS win_pct
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Max Verstappen'
+    expected:
+      - [30.1]
+
+  - id: most_wins_monaco
+    level: 2
+    tags: [aggregation, ranking]
+    question: Which driver has won the Monaco Grand Prix the most times, and how many times?
+    sql: |
+      SELECT d.full_name, count(DISTINCT rr.race_id) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.race_name = 'Monaco Grand Prix'
+        AND rr.is_win
+      GROUP BY d.full_name
+      ORDER BY wins DESC
+      LIMIT 1
+    expected:
+      - [Ayrton Senna, 6]
+
+  - id: nationality_most_winners
+    level: 2
+    tags: [aggregation, distinct]
+    question: Which nationality has produced the most different Grand Prix winners, and how many?
+    sql: |
+      SELECT d.driver_nationality, count(DISTINCT rr.driver_id) AS winners
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE rr.is_win
+      GROUP BY d.driver_nationality
+      ORDER BY winners DESC
+      LIMIT 1
+    expected:
+      - [British, 21]
+
+  - id: verstappen_sprint_wins
+    level: 2
+    tags: [metric, rule_sprint]
+    question: How many sprint races has Max Verstappen won?
+    sql: |
+      SELECT count(DISTINCT sr.race_id) FILTER (WHERE sr.is_sprint_win) AS sprint_wins
+      FROM marts.fct_sprint_results AS sr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Max Verstappen'
+    expected:
+      - [11]
+
+  - id: most_laps_led_2024
+    level: 2
+    tags: [aggregation, lap_times]
+    question: Which driver led the most laps in the 2024 season, and how many laps did he lead?
+    sql: |
+      SELECT d.full_name, count(*) AS laps_led
+      FROM marts.fct_lap_times AS lt
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2024
+        AND lt.position_on_lap = 1
+      GROUP BY d.full_name
+      ORDER BY laps_led DESC
+      LIMIT 1
+    expected:
+      - [Max Verstappen, 560]
+
+  # --- Level 3: multi-step and temporal ---------------------------------------
+  - id: four_or_more_titles
+    level: 3
+    tags: [standings, having]
+    question: >-
+      Which drivers have won at least four drivers' championships, and how many
+      titles does each have?
+    sql: |
+      SELECT d.full_name, count(*) AS titles
+      FROM marts.fct_driver_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.is_season_finale
+        AND st.championship_position = 1
+      GROUP BY d.full_name
+      HAVING count(*) >= 4
+      ORDER BY titles DESC
+    expected:
+      - [Lewis Hamilton, 7]
+      - [Michael Schumacher, 7]
+      - [Juan Fangio, 5]
+      - [Alain Prost, 4]
+      - [Max Verstappen, 4]
+      - [Sebastian Vettel, 4]
+
+  - id: races_per_decade
+    level: 3
+    tags: [temporal, aggregation]
+    question: >-
+      How many Grand Prix were held in each decade? Identify each decade by its
+      first year, for example 1950.
+    sql: |
+      SELECT (season // 10) * 10 AS decade, count(*) AS races
+      FROM marts.dim_race
+      GROUP BY decade
+      ORDER BY decade
+    expected:
+      - [1950, 84]
+      - [1960, 100]
+      - [1970, 144]
+      - [1980, 156]
+      - [1990, 162]
+      - [2000, 174]
+      - [2010, 198]
+      - [2020, 107]
+
+  - id: youngest_race_winner
+    level: 3
+    tags: [temporal, dates]
+    question: >-
+      Who is the youngest driver to have won a Grand Prix, and how old was he,
+      in completed years, on the day of that win?
+    # Trap: date_diff('year', ...) counts calendar year boundaries and gives 19.
+    sql: |
+      SELECT d.full_name,
+             date_sub('year', d.date_of_birth, r.race_date) AS age_years
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE rr.is_win
+      ORDER BY r.race_date - d.date_of_birth
+      LIMIT 1
+    expected:
+      - [Max Verstappen, 18]
+
+  - id: most_pit_stops_race
+    level: 3
+    tags: [aggregation, pit_stops]
+    question: >-
+      Which Grand Prix had the most pit stops in total, counting all drivers?
+      Give the race, the season and the number of stops.
+    sql: |
+      SELECT r.race_name, r.season, count(*) AS stops
+      FROM marts.fct_pit_stops AS ps
+      JOIN marts.dim_race AS r USING (race_id)
+      GROUP BY r.race_name, r.season
+      ORDER BY stops DESC
+      LIMIT 1
+    expected:
+      - [Dutch Grand Prix, 2023, 101]
+
+  - id: vettel_first_lead_2010
+    level: 3
+    tags: [standings, temporal]
+    question: >-
+      After which round of the 2010 season did Sebastian Vettel lead the drivers'
+      championship for the first time?
+    sql: |
+      SELECT min(r.round) AS round
+      FROM marts.fct_driver_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2010
+        AND d.full_name = 'Sebastian Vettel'
+        AND st.championship_position = 1
+    expected:
+      - [19]
+
+  - id: lowest_grid_win_since_2000
+    level: 3
+    tags: [sorting, rule_grid]
+    question: >-
+      Since 2000, which driver won a Grand Prix from the lowest starting grid
+      position? Give the driver, the race and the season.
+    # grid_position = 0 is a pit lane start or no slot, not the front row.
+    sql: |
+      SELECT d.full_name, r.race_name, r.season, rr.grid_position
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE rr.is_win
+        AND r.season >= 2000
+        AND rr.grid_position > 0
+      ORDER BY rr.grid_position DESC
+      LIMIT 1
+    expected:
+      - [Rubens Barrichello, German Grand Prix, 2000]
+
+  - id: best_constructor_season_share
+    level: 3
+    tags: [ratio, cte]
+    question: >-
+      Which constructor won the highest percentage of a season's Grand Prix?
+      Give the constructor, the season and the percentage, rounded to one decimal.
+    sql: |
+      WITH season_races AS (
+          SELECT season, count(*) AS races
+          FROM marts.dim_race
+          GROUP BY season
+      ),
+      constructor_wins AS (
+          SELECT r.season, rr.constructor_id,
+                 count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+          FROM marts.fct_race_results AS rr
+          JOIN marts.dim_race AS r USING (race_id)
+          GROUP BY r.season, rr.constructor_id
+      )
+      SELECT c.constructor_name, cw.season,
+             round(100.0 * cw.wins / sr.races, 1) AS win_pct
+      FROM constructor_wins AS cw
+      JOIN season_races AS sr USING (season)
+      JOIN marts.dim_constructor AS c USING (constructor_id)
+      ORDER BY cw.wins / sr.races DESC
+      LIMIT 1
+    expected:
+      - [Red Bull, 2023, 95.5]
+
+  # --- Level 4: window functions and self-joins -------------------------------
+  - id: top_winner_per_decade
+    level: 4
+    tags: [window, temporal]
+    question: >-
+      Who won the most Grand Prix in each decade from the 1980s to the 2010s, and
+      how many? Identify each decade by its first year, for example 1980.
+    sql: |
+      WITH decade_wins AS (
+          SELECT (r.season // 10) * 10 AS decade, d.full_name,
+                 count(DISTINCT rr.race_id) AS wins
+          FROM marts.fct_race_results AS rr
+          JOIN marts.dim_race AS r USING (race_id)
+          JOIN marts.dim_driver AS d USING (driver_id)
+          WHERE rr.is_win
+            AND r.season BETWEEN 1980 AND 2019
+          GROUP BY decade, d.full_name
+      )
+      SELECT decade, full_name, wins
+      FROM decade_wins
+      QUALIFY rank() OVER (PARTITION BY decade ORDER BY wins DESC) = 1
+      ORDER BY decade
+    expected:
+      - [1980, Alain Prost, 39]
+      - [1990, Michael Schumacher, 35]
+      - [2000, Michael Schumacher, 56]
+      - [2010, Lewis Hamilton, 73]
+
+  - id: verstappen_streak_2023
+    level: 4
+    tags: [window, gaps_and_islands]
+    question: >-
+      What was Max Verstappen's longest run of consecutive Grand Prix wins in
+      2023, and from which round to which round did it last?
+    sql: |
+      WITH wins AS (
+          SELECT r.round
+          FROM marts.fct_race_results AS rr
+          JOIN marts.dim_race AS r USING (race_id)
+          JOIN marts.dim_driver AS d USING (driver_id)
+          WHERE r.season = 2023
+            AND d.full_name = 'Max Verstappen'
+            AND rr.is_win
+      ),
+      streaks AS (
+          -- Consecutive rounds share the same round - row_number() value.
+          SELECT round, round - row_number() OVER (ORDER BY round) AS streak_id
+          FROM wins
+      )
+      SELECT count(*) AS wins_in_a_row, min(round) AS first_round, max(round) AS last_round
+      FROM streaks
+      GROUP BY streak_id
+      ORDER BY wins_in_a_row DESC
+      LIMIT 1
+    expected:
+      - [10, 5, 14]
+
+  - id: champion_margin_2014_2024
+    level: 4
+    tags: [standings, pivot]
+    question: >-
+      For each season from 2014 to 2024, how many points separated the drivers'
+      champion from the runner-up?
+    sql: |
+      WITH final_standings AS (
+          SELECT r.season, st.championship_position, st.championship_points
+          FROM marts.fct_driver_standings AS st
+          JOIN marts.dim_race AS r USING (race_id)
+          WHERE r.is_season_finale
+            AND r.season BETWEEN 2014 AND 2024
+            AND st.championship_position IN (1, 2)
+      )
+      SELECT season,
+             max(championship_points) FILTER (WHERE championship_position = 1)
+             - max(championship_points) FILTER (WHERE championship_position = 2)
+                 AS points_margin
+      FROM final_standings
+      GROUP BY season
+      ORDER BY season
+    expected:
+      - [2014, 67]
+      - [2015, 59]
+      - [2016, 5]
+      - [2017, 46]
+      - [2018, 88]
+      - [2019, 87]
+      - [2020, 124]
+      - [2021, 8]
+      - [2022, 146]
+      - [2023, 290]
+      - [2024, 63]
+
+  - id: leclerc_vs_vettel_qualifying_2019
+    level: 4
+    tags: [self_join, qualifying]
+    question: >-
+      In the 2019 season, in how many races did Charles Leclerc qualify ahead of
+      his teammate Sebastian Vettel?
+    sql: |
+      WITH quali AS (
+          SELECT q.race_id, d.full_name, q.qualifying_position
+          FROM marts.fct_qualifying AS q
+          JOIN marts.dim_race AS r USING (race_id)
+          JOIN marts.dim_driver AS d USING (driver_id)
+          WHERE r.season = 2019
+            AND d.full_name IN ('Charles Leclerc', 'Sebastian Vettel')
+      )
+      SELECT count(*) AS races_ahead
+      FROM quali AS lec
+      JOIN quali AS vet
+          ON vet.race_id = lec.race_id
+          AND vet.full_name = 'Sebastian Vettel'
+      WHERE lec.full_name = 'Charles Leclerc'
+        AND lec.qualifying_position < vet.qualifying_position
+    expected:
+      - [12]
+
+  - id: podium_in_every_race
+    level: 4
+    tags: [cte, having]
+    question: >-
+      Which driver finished on the podium in every Grand Prix he started during
+      a season with at least 10 starts? Give the driver and the season.
+    sql: |
+      WITH driver_seasons AS (
+          SELECT r.season, rr.driver_id,
+                 count(DISTINCT rr.race_id) FILTER (WHERE rr.is_race_start) AS starts,
+                 count(DISTINCT rr.race_id) FILTER (WHERE rr.is_podium) AS podiums
+          FROM marts.fct_race_results AS rr
+          JOIN marts.dim_race AS r USING (race_id)
+          GROUP BY r.season, rr.driver_id
+      )
+      SELECT d.full_name, ds.season
+      FROM driver_seasons AS ds
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE ds.starts >= 10
+        AND ds.podiums = ds.starts
+    expected:
+      - [Michael Schumacher, 2002]
