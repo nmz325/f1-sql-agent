@@ -44,7 +44,17 @@ metrics:
   - name: poles
     table: fct_qualifying
     sql: count(distinct race_id) filter (where is_pole)
-    description: Pole positions from qualifying (data from 1994).
+    description: >-
+      Pole positions from qualifying. Complete only from 2003; for earlier
+      seasons use the first_grid_slot_starts metric instead.
+
+  - name: first_grid_slot_starts
+    table: fct_race_results
+    sql: count(distinct race_id) filter (where grid_position = 1)
+    description: >-
+      Races started from the first grid slot. Proxy for poles before 2003, when
+      qualifying data is incomplete; penalties can make it differ from the
+      actual pole.
 
   - name: sprint_wins
     table: fct_sprint_results

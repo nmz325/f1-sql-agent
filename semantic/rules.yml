@@ -36,11 +36,11 @@ rules:
   - id: pole_vs_grid
     tables: [fct_qualifying, fct_race_results]
     text: >-
-      Pole position is `is_pole` in `fct_qualifying` (available from 1994).
-      `grid_position` is the actual starting slot and can differ from qualifying
-      because of penalties; before 1994 it is the only proxy for pole, so say so.
-      `grid_position` = 0 means a pit lane start or no slot: exclude it from
-      averages.
+      Pole position is `is_pole` in `fct_qualifying`, which is complete only from
+      2003. For pole counts that include earlier seasons, use `grid_position` = 1
+      in `fct_race_results` as a proxy and say so: the starting slot can differ
+      from qualifying because of penalties. `grid_position` = 0 means a pit lane
+      start or no slot: exclude it from averages.
 
   - id: pit_stop_outliers
     tables: [fct_pit_stops]
@@ -51,11 +51,12 @@ rules:
   - id: missing_is_not_zero
     tables: [fct_lap_times, fct_qualifying, fct_pit_stops, fct_sprint_results, fct_constructor_standings, fct_race_results]
     text: >-
-      Coverage varies by table (see each table description). Also, the
+      Coverage varies by table (see each table description). Also,
+      `fct_qualifying` starts in 1994 but is complete only from 2003, the
       constructors' championship starts in 1958 and the fastest lap columns of
-      `fct_race_results` (`fastest_lap_time_ms` and related) start in 2004.
-      Outside the covered seasons data is missing, not zero: tell the user
-      instead of answering 0.
+      `fct_race_results` (`fastest_lap_time_ms` and related) start in 2004, with
+      a couple of races without data. Outside the covered seasons data is
+      missing, not zero: tell the user instead of answering 0.
 
   - id: name_matching
     tables: [dim_driver, dim_constructor, dim_race]
