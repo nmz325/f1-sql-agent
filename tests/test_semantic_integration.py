@@ -6,19 +6,15 @@ statistics.
 """
 
 from collections.abc import Iterator
-from pathlib import Path
 
 import duckdb
 import pytest
 
+from f1_sql_agent.config import DATABASE_PATH, MANIFEST_PATH, SEMANTIC_DIR
 from f1_sql_agent.semantic.layer import SemanticLayer, load_semantic_layer
 
-ROOT = Path(__file__).resolve().parents[1]
-MANIFEST = ROOT / "transform" / "target" / "manifest.json"
-DATABASE = ROOT / "data" / "f1.duckdb"
-
 pytestmark = pytest.mark.skipif(
-    not (MANIFEST.is_file() and DATABASE.is_file()),
+    not (MANIFEST_PATH.is_file() and DATABASE_PATH.is_file()),
     reason="needs the dbt build output (manifest.json and data/f1.duckdb)",
 )
 
@@ -50,12 +46,12 @@ SANITY_CHECKED = {"pit_stop_trend"}
 @pytest.fixture(scope="module")
 def layer() -> SemanticLayer:
     # Loading also validates every reference against the manifest.
-    return load_semantic_layer(MANIFEST, ROOT / "semantic")
+    return load_semantic_layer(MANIFEST_PATH, SEMANTIC_DIR)
 
 
 @pytest.fixture(scope="module")
 def con() -> Iterator[duckdb.DuckDBPyConnection]:
-    connection = duckdb.connect(str(DATABASE), read_only=True)
+    connection = duckdb.connect(str(DATABASE_PATH), read_only=True)
     yield connection
     connection.close()
 
