@@ -16,9 +16,11 @@ from mcp.server.mcpserver.exceptions import ToolError
 from f1_sql_agent.agent import (
     GIVE_UP_ANSWER,
     MAX_QUERY_RETRIES,
+    TOO_MANY_STEPS_ANSWER,
     ask,
     build_graph,
     load_context,
+    run_question,
 )
 
 fake_server = MCPServer("fake-f1")
@@ -113,3 +115,30 @@ def test_ask_returns_the_final_text() -> None:
             return await ask(build_graph(model, client, tools, system_prompt), "q")
 
     assert asyncio.run(go()) == "It is 1."
+
+
+def ask_scripted(script: list[AIMessage]) -> tuple[str, list[Any]]:
+    """Run one question with run_question and a scripted model."""
+
+    async def go() -> tuple[str, list[Any]]:
+        async with Client(fake_server) as client:
+            tools, system_prompt = await load_context(client)
+            model = ScriptedModel(messages=iter(script))
+            graph = build_graph(model, client, tools, system_prompt)
+            return await run_question(graph, "q")
+
+    return asyncio.run(go())
+
+
+def test_run_question_returns_the_answer_and_the_messages() -> None:
+    answer, messages = ask_scripted([query("SELECT 1"), AIMessage("It is 1.")])
+    assert answer == "It is 1."
+    # user, LLM tool call, tool result, answer
+    assert [m.type for m in messages] == ["human", "ai", "tool", "ai"]
+
+
+def test_step_limit_keeps_the_messages_so_far() -> None:
+    endless = [query("SELECT 1") for _ in range(40)]  # never answers
+    answer, messages = ask_scripted(endless)
+    assert answer == TOO_MANY_STEPS_ANSWER
+    assert len(messages) > 10

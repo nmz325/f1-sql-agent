@@ -47,6 +47,9 @@ from mcp.shared.exceptions import MCPError
 from f1_sql_agent.config import PROJECT_ROOT
 
 DEFAULT_MODEL = "groq:openai/gpt-oss-120b"
+# Free tiers answer HTTP 429 when a per-minute limit is hit: the client waits
+# what the API asks (retry-after header) and tries again, up to this many times.
+MAX_LLM_RETRIES = 5
 MAX_QUERY_RETRIES = 3  # failed run_query calls allowed after the first attempt
 MAX_STEPS = 30  # LangGraph steps per question: a safety net against endless loops
 EXAMPLES_URI = "f1://examples"
@@ -168,19 +171,36 @@ def build_graph(
     return graph.compile()
 
 
-async def ask(graph: CompiledStateGraph, question: str) -> str:
-    """Run one question through the graph and return the final answer."""
+async def run_question(
+    graph: CompiledStateGraph, question: str
+) -> tuple[str, list[AnyMessage]]:
+    """Run one question through the graph.
+
+    Returns the final answer and every message of the run (tool calls, tool
+    results, token usage), which the evaluation needs. stream_mode="values"
+    yields the whole state after each step, so the messages so far are kept
+    even when the run stops at the step limit.
+    """
     _log("question", text=question)
+    messages: list[AnyMessage] = []
     try:
-        state = await graph.ainvoke(
+        async for state in graph.astream(
             {"messages": [HumanMessage(question)], "failed_queries": 0},
             {"recursion_limit": MAX_STEPS},
-        )
+            stream_mode="values",
+        ):
+            messages = state["messages"]
     except GraphRecursionError:
         _log("too_many_steps", limit=MAX_STEPS)
-        return TOO_MANY_STEPS_ANSWER
-    answer = state["messages"][-1].text
+        return TOO_MANY_STEPS_ANSWER, messages
+    answer = messages[-1].text
     _log("answer", text=answer)
+    return answer, messages
+
+
+async def ask(graph: CompiledStateGraph, question: str) -> str:
+    """Run one question through the graph and return the final answer."""
+    answer, _ = await run_question(graph, question)
     return answer
 
 
@@ -214,14 +234,19 @@ def server_parameters() -> StdioServerParameters:
     return StdioServerParameters(command=command, env=env, cwd=PROJECT_ROOT)
 
 
+def resolve_model_name(model_name: str | None = None) -> str:
+    """The model to use: the argument, else F1_AGENT_MODEL, else the default."""
+    return model_name or os.environ.get("F1_AGENT_MODEL", DEFAULT_MODEL)
+
+
 @asynccontextmanager
 async def open_agent(
     model_name: str | None = None,
 ) -> AsyncIterator[CompiledStateGraph]:
     """Start the MCP server, read its context and yield a ready graph.
     The server stops (and releases the database) when the block ends."""
-    model_name = model_name or os.environ.get("F1_AGENT_MODEL", DEFAULT_MODEL)
-    model = init_chat_model(model_name, temperature=0)
+    model_name = resolve_model_name(model_name)
+    model = init_chat_model(model_name, temperature=0, max_retries=MAX_LLM_RETRIES)
     async with Client(server_parameters()) as client:
         tools, system_prompt = await load_context(client)
         _log("ready", model=model_name, tools=[t["function"]["name"] for t in tools])
