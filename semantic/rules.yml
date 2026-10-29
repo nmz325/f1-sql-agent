@@ -45,8 +45,11 @@ rules:
   - id: pit_stop_outliers
     tables: [fct_pit_stops]
     text: >-
-      Stops made under a red flag last several minutes. For typical pit stop
-      analysis (averages, fastest stops) keep `pit_stop_duration_ms` < 60000.
+      `pit_stop_duration_ms` is the time spent in the pit lane, from entry to
+      exit, not the stationary time of the crew (a few seconds). It depends on
+      the length of each pit lane, so only compare stops within the same circuit.
+      Stops made under a red flag last several minutes: keep
+      `pit_stop_duration_ms` < 60000 for typical analysis such as averages.
 
   - id: missing_is_not_zero
     tables: [fct_lap_times, fct_qualifying, fct_pit_stops, fct_sprint_results, fct_constructor_standings, fct_race_results]
@@ -62,8 +65,10 @@ rules:
     tables: [dim_driver, dim_constructor, dim_race]
     text: >-
       Names keep their original accents and may contain apostrophes
-      (d'Ambrosio). Users often type them without accents, so compare names
-      accent- and case-insensitively on both sides, for example
+      (d'Ambrosio). Full names can also be shorter than the usual name (Juan
+      Fangio, not Juan Manuel Fangio), so match drivers on `last_name` or a
+      distinctive part of the name. Users often type names without accents:
+      compare them accent- and case-insensitively on both sides, for example
       strip_accents(lower(full_name)) LIKE '%raikkonen%'. Escape apostrophes in
       literals by doubling them: 'd''Ambrosio'. Applies to `full_name`,
       `last_name`, `constructor_name`, `race_name` and `circuit_name`.

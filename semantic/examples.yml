@@ -1,0 +1,91 @@
+# Verified question/SQL pairs, shown to the agent as few-shot examples.
+# Each one teaches a rule or a SQL pattern. Do not reuse these questions in
+# the evaluation set (phase 5): that would inflate the measured accuracy.
+# Tables must be schema-qualified (marts.<table>).
+examples:
+  - id: season_champion
+    question: Who won the 2021 drivers' championship, and with how many points?
+    sql: |
+      SELECT d.full_name, st.championship_points
+      FROM marts.fct_driver_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2021
+        AND r.is_season_finale
+        AND st.championship_position = 1
+
+  - id: wins_by_name_without_accents
+    question: How many Grand Prix wins does Kimi Raikkonen have?
+    sql: |
+      SELECT d.full_name,
+             count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE strip_accents(lower(d.full_name)) LIKE '%raikkonen%'
+      GROUP BY d.full_name
+
+  - id: starts_with_shared_cars
+    question: How many Grand Prix did Juan Manuel Fangio start?
+    sql: |
+      -- The data stores him as Juan Fangio: match on the surname.
+      -- 1950s shared cars can give a driver several rows per race: count distinct.
+      SELECT d.full_name,
+             count(DISTINCT rr.race_id) FILTER (WHERE rr.is_race_start) AS starts
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE strip_accents(lower(d.last_name)) = 'fangio'
+      GROUP BY d.full_name
+
+  - id: entries_versus_starts
+    question: How many races did Damon Hill enter, and how many did he start?
+    sql: |
+      -- Entries include races he failed to qualify for: filter is_race_start.
+      SELECT d.full_name,
+             count(DISTINCT rr.race_id) AS entries,
+             count(DISTINCT rr.race_id) FILTER (WHERE rr.is_race_start) AS starts
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE strip_accents(lower(d.full_name)) LIKE '%damon hill%'
+      GROUP BY d.full_name
+
+  - id: poles_before_2003
+    question: How many pole positions did Ayrton Senna get?
+    sql: |
+      -- Qualifying data is incomplete before 2003: use the grid proxy and say so.
+      SELECT d.full_name,
+             count(DISTINCT rr.race_id) FILTER (WHERE rr.grid_position = 1)
+                 AS first_grid_slot_starts
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE strip_accents(lower(d.full_name)) LIKE '%ayrton senna%'
+      GROUP BY d.full_name
+
+  - id: top_constructor_per_season
+    question: Which constructor won the most Grand Prix in each season from 2014 to 2024?
+    sql: |
+      WITH season_wins AS (
+          SELECT r.season, c.constructor_name,
+                 count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+          FROM marts.fct_race_results AS rr
+          JOIN marts.dim_race AS r USING (race_id)
+          JOIN marts.dim_constructor AS c USING (constructor_id)
+          WHERE r.season BETWEEN 2014 AND 2024
+          GROUP BY r.season, c.constructor_name
+      )
+      SELECT season, constructor_name, wins
+      FROM season_wins
+      QUALIFY rank() OVER (PARTITION BY season ORDER BY wins DESC) = 1
+      ORDER BY season
+
+  - id: pit_stop_trend
+    question: How has the average pit stop duration changed per season?
+    sql: |
+      -- Duration is the time in the pit lane (entry to exit), not stationary time.
+      SELECT r.season,
+             round(avg(ps.pit_stop_duration_ms) / 1000, 2) AS avg_pit_stop_s,
+             count(*) AS stops
+      FROM marts.fct_pit_stops AS ps
+      JOIN marts.dim_race AS r USING (race_id)
+      WHERE ps.pit_stop_duration_ms < 60000  -- exclude red flag stops
+      GROUP BY r.season
+      ORDER BY r.season

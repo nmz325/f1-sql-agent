@@ -1,12 +1,13 @@
 """Business knowledge of the semantic layer, and the assembled SemanticLayer.
 
-Rules and metrics live in hand-written YAML files under semantic/. They only
-reference the dbt models: every reference is checked against the catalog built
-from the manifest, so the two sources of truth cannot drift apart.
+Rules, metrics and examples live in hand-written YAML files under semantic/.
+They only reference the dbt models: every reference is checked against the
+catalog built from the manifest, so the two sources of truth cannot drift apart.
 
 Convention: identifiers in backticks inside a text (`is_race_start`,
 `dim_race.is_season_finale`) are validated. Write literal values in quotes
-('F', 'W'), never in backticks.
+('F', 'W'), never in backticks. Example SQL must use schema-qualified tables
+(marts.dim_race): that is how the tables of an example are found.
 """
 
 import re
@@ -16,12 +17,14 @@ from pathlib import Path
 import yaml
 from pydantic import Field, ValidationError
 
-from f1_sql_agent.semantic.manifest import load_catalog
+from f1_sql_agent.semantic.manifest import EXPOSED_SCHEMA, load_catalog
 from f1_sql_agent.semantic.models import Catalog, Table, _Frozen
 
 IDENTIFIER = r"[a-z][a-z0-9_]*"
 # `column` or `table.column`; SQL snippets in backticks are not matched.
 _BACKTICKED = re.compile(rf"`({IDENTIFIER}(?:\.{IDENTIFIER})?)`")
+# marts.<table> inside example SQL.
+_QUALIFIED_TABLE = re.compile(rf"\b{EXPOSED_SCHEMA}\.({IDENTIFIER})\b")
 
 
 class SemanticError(ValueError):
@@ -45,6 +48,19 @@ class Metric(_Frozen):
     description: str = Field(min_length=1)
 
 
+class Example(_Frozen):
+    """A verified question/SQL pair, shown to the agent as a few-shot example."""
+
+    id: str = Field(pattern=rf"^{IDENTIFIER}$")
+    question: str = Field(min_length=1)
+    sql: str = Field(min_length=1)
+
+    @property
+    def tables(self) -> tuple[str, ...]:
+        """Tables the SQL reads, taken from its schema-qualified names."""
+        return tuple(sorted(set(_QUALIFIED_TABLE.findall(self.sql))))
+
+
 class _RulesFile(_Frozen):
     rules: tuple[Rule, ...]
 
@@ -53,12 +69,17 @@ class _MetricsFile(_Frozen):
     metrics: tuple[Metric, ...]
 
 
+class _ExamplesFile(_Frozen):
+    examples: tuple[Example, ...]
+
+
 class SemanticLayer(_Frozen):
     """Everything the agent knows about the data model."""
 
     catalog: Catalog
     rules: tuple[Rule, ...]
     metrics: tuple[Metric, ...]
+    examples: tuple[Example, ...] = ()
 
     def rules_for(self, table: str) -> tuple[Rule, ...]:
         """Rules that apply to `table`."""
@@ -68,15 +89,22 @@ class SemanticLayer(_Frozen):
         """Metrics computed over `table`."""
         return tuple(metric for metric in self.metrics if metric.table == table)
 
+    def examples_for(self, table: str) -> tuple[Example, ...]:
+        """Examples whose SQL reads `table`."""
+        return tuple(example for example in self.examples if table in example.tables)
+
 
 def load_semantic_layer(manifest_path: Path, semantic_dir: Path) -> SemanticLayer:
     """Load catalog and business knowledge, and check them against each other."""
     catalog = load_catalog(manifest_path)
     rules, metrics = load_business(semantic_dir)
-    errors = validate_references(catalog, rules, metrics)
+    examples = load_examples(semantic_dir)
+    errors = validate_references(catalog, rules, metrics, examples)
     if errors:
         raise SemanticError("Invalid semantic layer:\n- " + "\n- ".join(errors))
-    return SemanticLayer(catalog=catalog, rules=rules, metrics=metrics)
+    return SemanticLayer(
+        catalog=catalog, rules=rules, metrics=metrics, examples=examples
+    )
 
 
 def load_business(semantic_dir: Path) -> tuple[tuple[Rule, ...], tuple[Metric, ...]]:
@@ -86,12 +114,21 @@ def load_business(semantic_dir: Path) -> tuple[tuple[Rule, ...], tuple[Metric, .
     return rules, metrics
 
 
+def load_examples(semantic_dir: Path) -> tuple[Example, ...]:
+    """Parse examples.yml (structure only, no reference checks)."""
+    return _load(semantic_dir / "examples.yml", _ExamplesFile).examples
+
+
 def validate_references(
-    catalog: Catalog, rules: tuple[Rule, ...], metrics: tuple[Metric, ...]
+    catalog: Catalog,
+    rules: tuple[Rule, ...],
+    metrics: tuple[Metric, ...],
+    examples: tuple[Example, ...] = (),
 ) -> list[str]:
     """Return every problem found; an empty list means everything is consistent."""
     errors = _duplicates("rule id", [rule.id for rule in rules])
     errors += _duplicates("metric name", [metric.name for metric in metrics])
+    errors += _duplicates("example id", [example.id for example in examples])
     for rule in rules:
         where = f"rule {rule.id!r}"
         errors += [
@@ -108,6 +145,18 @@ def validate_references(
         errors += _check_identifiers(
             catalog, metric.description, (metric.table,), where
         )
+    for example in examples:
+        where = f"example {example.id!r}"
+        if not example.tables:
+            errors.append(
+                f"{where}: SQL must use schema-qualified tables "
+                f"({EXPOSED_SCHEMA}.<table>)"
+            )
+        errors += [
+            f"{where}: unknown table {table!r}"
+            for table in example.tables
+            if table not in catalog.tables
+        ]
     return errors
 
 
