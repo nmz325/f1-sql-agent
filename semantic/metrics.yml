@@ -1,0 +1,57 @@
+# Reusable aggregate expressions with an agreed meaning. `sql` is evaluated
+# over `table` and grouped by whatever the question needs (driver, season...).
+metrics:
+  - name: races_started
+    table: fct_race_results
+    sql: count(distinct race_id) filter (where is_race_start)
+    description: Grand Prix starts, counted once per race and excluding entries that did not start.
+
+  - name: wins
+    table: fct_race_results
+    sql: count(distinct race_id) filter (where is_win)
+    description: Grand Prix wins (sprints excluded).
+
+  - name: podiums
+    table: fct_race_results
+    sql: count(distinct race_id) filter (where is_podium)
+    description: Grand Prix podium finishes (top 3).
+
+  - name: win_rate
+    table: fct_race_results
+    sql: >-
+      count(distinct race_id) filter (where is_win)
+      / nullif(count(distinct race_id) filter (where is_race_start), 0)
+    description: Share of started Grand Prix that were won, between 0 and 1.
+
+  - name: points_scored
+    table: fct_race_results
+    sql: sum(points)
+    description: >-
+      Points scored in Grand Prix races. Not championship points: those come
+      from `fct_driver_standings` or `fct_constructor_standings` at the season
+      finale.
+
+  - name: fastest_laps
+    table: fct_race_results
+    sql: count(distinct race_id) filter (where fastest_lap_rank = 1)
+    description: Races in which the driver set the fastest lap (data from 2004).
+
+  - name: retirements
+    table: fct_race_results
+    sql: count(distinct race_id) filter (where result_type = 'retired')
+    description: Races started but not finished because of a retirement (DNF).
+
+  - name: poles
+    table: fct_qualifying
+    sql: count(distinct race_id) filter (where is_pole)
+    description: Pole positions from qualifying (data from 1994).
+
+  - name: sprint_wins
+    table: fct_sprint_results
+    sql: count(distinct race_id) filter (where is_sprint_win)
+    description: Sprint wins (2021 onwards). Not Grand Prix wins.
+
+  - name: avg_pit_stop_ms
+    table: fct_pit_stops
+    sql: avg(pit_stop_duration_ms) filter (where pit_stop_duration_ms < 60000)
+    description: Average pit stop duration in ms, excluding red flag stops (data from 2011).

@@ -1,0 +1,85 @@
+# Business rules the agent must follow, grouped by the tables they apply to.
+# Identifiers in backticks are validated against the dbt manifest;
+# write literal values in single quotes ('retired'), never in backticks.
+rules:
+  - id: entries_vs_starts
+    tables: [fct_race_results, fct_sprint_results]
+    text: >-
+      Rows are entries, not starts: drivers with `result_type` 'failed_to_qualify'
+      or 'withdrawn' never started. To count starts or races driven, filter
+      `is_race_start` (`is_sprint_start` for sprints).
+
+  - id: shared_cars
+    tables: [fct_race_results]
+    text: >-
+      In the 1950s drivers could share a car, so one driver can have up to three
+      rows in the same race. Count races, wins and podiums with
+      count(distinct race_id), never count(*).
+
+  - id: season_standings
+    tables: [fct_driver_standings, fct_constructor_standings, dim_race, fct_race_results]
+    text: >-
+      Standings are cumulative after each race. Final season totals and champions
+      come from the row of the season's last race: join `dim_race` and filter
+      `is_season_finale`; the champion has `championship_position` = 1. Do not
+      rebuild season totals by summing `fct_race_results.points`: sprint points
+      live in `fct_sprint_results` and early seasons only counted each driver's
+      best results.
+
+  - id: grand_prix_vs_sprint
+    tables: [fct_race_results, fct_sprint_results]
+    text: >-
+      A race, win or podium means the Grand Prix (`fct_race_results`). Sprints
+      (2021 onwards) are separate events in `fct_sprint_results`: use them only
+      when the question mentions sprints.
+
+  - id: pole_vs_grid
+    tables: [fct_qualifying, fct_race_results]
+    text: >-
+      Pole position is `is_pole` in `fct_qualifying` (available from 1994).
+      `grid_position` is the actual starting slot and can differ from qualifying
+      because of penalties; before 1994 it is the only proxy for pole, so say so.
+      `grid_position` = 0 means a pit lane start or no slot: exclude it from
+      averages.
+
+  - id: pit_stop_outliers
+    tables: [fct_pit_stops]
+    text: >-
+      Stops made under a red flag last several minutes. For typical pit stop
+      analysis (averages, fastest stops) keep `pit_stop_duration_ms` < 60000.
+
+  - id: missing_is_not_zero
+    tables: [fct_lap_times, fct_qualifying, fct_pit_stops, fct_sprint_results, fct_constructor_standings, fct_race_results]
+    text: >-
+      Coverage varies by table (see each table description). Also, the
+      constructors' championship starts in 1958 and the fastest lap columns of
+      `fct_race_results` (`fastest_lap_time_ms` and related) start in 2004.
+      Outside the covered seasons data is missing, not zero: tell the user
+      instead of answering 0.
+
+  - id: name_matching
+    tables: [dim_driver, dim_constructor, dim_race]
+    text: >-
+      Names keep their original accents and may contain apostrophes
+      (d'Ambrosio). Users often type them without accents, so compare names
+      accent- and case-insensitively on both sides, for example
+      strip_accents(lower(full_name)) LIKE '%raikkonen%'. Escape apostrophes in
+      literals by doubling them: 'd''Ambrosio'. Applies to `full_name`,
+      `last_name`, `constructor_name`, `race_name` and `circuit_name`.
+
+  - id: car_number_is_not_identity
+    tables: [fct_race_results, fct_qualifying, fct_sprint_results, dim_driver]
+    text: >-
+      `car_number` is the number on the car in that event, not a driver
+      identifier: it changes across seasons and teams. Identify drivers by
+      `driver_id`. `dim_driver.permanent_number` is the number a driver keeps
+      across seasons (chosen from 2014 onwards).
+
+  - id: indianapolis_500
+    tables: [dim_race, fct_race_results]
+    text: >-
+      From 1950 to 1960 the Indianapolis 500 (`race_name` = 'Indianapolis 500')
+      counted for the championship. Keep it unless the user asks otherwise: it
+      is part of the official statistics. It explains outliers such as
+      `laps_completed` up to 200 and drivers whose only starts are at
+      Indianapolis.
