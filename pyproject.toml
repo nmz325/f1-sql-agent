@@ -12,6 +12,7 @@ dependencies = [
     "dbt-duckdb>=1.11.1",
     "duckdb>=2.0.0",
     "kagglehub>=1.0.3",
+    "mcp>=2.3.0",
     "pydantic>=2.14.1",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
@@ -19,6 +20,7 @@ dependencies = [
 
 [project.scripts]
 f1-download = "f1_sql_agent.ingest.download:main"
+f1-mcp = "f1_sql_agent.mcp_server:main"
 f1-sql-agent = "f1_sql_agent:main"
 
 [build-system]

@@ -14,3 +14,7 @@ DATABASE_PATH = DATA_DIR / "f1.duckdb"
 # Semantic layer: structure from dbt's manifest, business knowledge from YAML.
 MANIFEST_PATH = PROJECT_ROOT / "transform" / "target" / "manifest.json"
 SEMANTIC_DIR = PROJECT_ROOT / "semantic"
+
+# Limits of the run_query tool: the agent should aggregate in SQL, not fetch raw rows.
+MAX_ROWS = 100
+QUERY_TIMEOUT_S = 10.0
