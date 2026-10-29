@@ -371,6 +371,7 @@ dependencies = [
     { name = "kagglehub" },
     { name = "pydantic" },
     { name = "python-dotenv" },
+    { name = "pyyaml" },
 ]
 
 [package.dev-dependencies]
@@ -387,6 +388,7 @@ requires-dist = [
     { name = "kagglehub", specifier = ">=1.0.3" },
     { name = "pydantic", specifier = ">=2.14.1" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
+    { name = "pyyaml", specifier = ">=6.0.3" },
 ]
 
 [package.metadata.requires-dev]
