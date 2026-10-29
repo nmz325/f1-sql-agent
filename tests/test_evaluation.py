@@ -1,9 +1,10 @@
-"""Unit tests for the evaluation: question set, result comparison and run
-summaries (no database, no LLM)."""
+"""Unit tests for the evaluation: question set, result comparison, run
+summaries and grading (no LLM and no project database)."""
 
 from datetime import date
 from pathlib import Path
 
+import duckdb
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
@@ -11,10 +12,12 @@ from f1_sql_agent.agent import GIVE_UP_ANSWER, TOO_MANY_STEPS_ANSWER
 from f1_sql_agent.config import SEMANTIC_DIR
 from f1_sql_agent.evaluation import (
     Question,
+    grade,
     load_questions,
     load_results,
     outcome_of,
     overlapping_examples,
+    render_report,
     results_match,
     results_path,
     summarize_run,
@@ -140,3 +143,45 @@ def test_load_results_reads_one_record_per_line(tmp_path: Path) -> None:
     assert load_results(path) == []  # no file yet
     path.write_text('{"id": "a"}\n{"id": "b"}\n', encoding="utf-8")
     assert [record["id"] for record in load_results(path)] == ["a", "b"]
+
+
+def races_question(qid: str = "races", level: int = 1) -> Question:
+    return Question(
+        id=qid, level=level, question="How many?", sql="SELECT 24", expected=((24,),)
+    )
+
+
+def test_grade_runs_the_agent_sql_again() -> None:
+    question = races_question()
+    with duckdb.connect() as con:  # in memory: these queries need no tables
+        assert (
+            grade(question, {"sql": "SELECT 24 AS races"}, con)["status"] == "correct"
+        )
+        assert grade(question, {"sql": "SELECT 23"}, con)["status"] == "wrong_result"
+        assert grade(question, {"sql": None}, con)["status"] == "no_sql"
+        assert grade(question, {"sql": "SELEC 1"}, con)["status"] == "sql_error"
+
+
+def test_report_shows_accuracy_and_failures() -> None:
+    questions = [races_question("a"), races_question("b", 2), races_question("c", 2)]
+    record = {
+        "answer": "There were 23.",
+        "sql": "SELECT 23",
+        "outcome": "answered",
+        "llm_calls": 4,
+        "input_tokens": 1000,
+        "output_tokens": 100,
+        "seconds": 5.0,
+        "failed_queries": 1,
+    }
+    records = {"a": {**record, "sql": "SELECT 24"}, "b": record}  # c was not run
+    grades = {
+        "a": {"status": "correct", "rows": [(24,)]},
+        "b": {"status": "wrong_result", "rows": [(23,)]},
+    }
+    report = render_report("fake:model", questions, records, grades)
+    assert "Execution accuracy: **1/2** (50%). Questions not run yet: 1." in report
+    assert "| 2 | 0/1 | 0% |" in report
+    assert "### b (level 2): wrong_result" in report
+    assert "SELECT 23" in report
+    assert "> There were 23." in report

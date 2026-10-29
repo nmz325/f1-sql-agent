@@ -8,11 +8,13 @@ when the result of the agent's SQL matches the expected rows.
 Commands:
     uv run f1-eval check   # the gold SQL still returns the expected rows
     uv run f1-eval run     # ask the agent every question, save its answers
+    uv run f1-eval score   # grade the saved answers, write a Markdown report
 
 `run` spends LLM tokens, so it saves one JSON line per question in
 eval/results/<model>.jsonl as soon as it is answered, and skips the questions
 already in that file: if the free tier runs out, run it again later and it
-continues where it stopped. Delete the file to start over.
+continues where it stopped. Delete the file to start over. `score` costs
+nothing: it re-runs the agent's SQL on the database and can be repeated.
 
 References: https://arxiv.org/abs/2305.03111 (BIRD, execution accuracy) and
 https://docs.anthropic.com/en/docs/test-and-evaluate/develop-tests
@@ -46,7 +48,7 @@ from f1_sql_agent.agent import (
     resolve_model_name,
     run_question,
 )
-from f1_sql_agent.config import DATABASE_PATH, PROJECT_ROOT, SEMANTIC_DIR
+from f1_sql_agent.config import DATABASE_PATH, MAX_ROWS, PROJECT_ROOT, SEMANTIC_DIR
 from f1_sql_agent.mcp_server import open_database
 from f1_sql_agent.semantic.layer import load_examples
 
@@ -272,6 +274,130 @@ async def run_agent(questions: Sequence[Question], model_name: str, path: Path) 
             )
 
 
+# --- Grading -------------------------------------------------------------------
+
+
+def grade(
+    question: Question, record: dict[str, Any], con: duckdb.DuckDBPyConnection
+) -> dict[str, Any]:
+    """Run the agent's graded SQL again and compare its rows with the expected.
+
+    The SQL is executed again (read-only) instead of parsing the CSV the agent
+    saw, so the values keep their types. Status: correct, wrong_result,
+    no_sql (no query worked, or the agent answered without one) or sql_error.
+    """
+    if not record.get("sql"):
+        return {"status": "no_sql", "rows": None}
+    try:
+        rows = con.execute(record["sql"]).fetchmany(MAX_ROWS + 1)
+    except duckdb.Error as exc:
+        return {"status": "sql_error", "rows": None, "error": str(exc)}
+    ok = results_match(question.expected, rows, ordered=question.ordered)
+    return {"status": "correct" if ok else "wrong_result", "rows": rows}
+
+
+def _pct(part: int, whole: int) -> str:
+    return f"{100 * part / whole:.0f}%" if whole else "-"
+
+
+def _as_text(rows: Rows) -> str:
+    """Rows as compact JSON for the report (dates as ISO text)."""
+    return json.dumps([list(row) for row in rows], ensure_ascii=False, default=str)
+
+
+def render_report(
+    model_name: str,
+    questions: Sequence[Question],
+    records: dict[str, dict[str, Any]],
+    grades: dict[str, dict[str, Any]],
+) -> str:
+    """Markdown report: accuracy (total and by level), cost, and each failure
+    with what was expected, what the agent got, its SQL and its answer."""
+    graded = [q for q in questions if q.id in grades]
+    ok = [q for q in graded if grades[q.id]["status"] == "correct"]
+    not_run = len(questions) - len(graded)
+    lines = [
+        f"# Evaluation: {model_name}",
+        "",
+        f"Execution accuracy: **{len(ok)}/{len(graded)}** ({_pct(len(ok), len(graded))})"
+        + (f". Questions not run yet: {not_run}." if not_run else "."),
+        "",
+        "| Level | Correct | Accuracy |",
+        "|---|---|---|",
+    ]
+    for level in sorted({q.level for q in questions}):
+        in_level = [q for q in graded if q.level == level]
+        hits = sum(grades[q.id]["status"] == "correct" for q in in_level)
+        lines.append(
+            f"| {level} | {hits}/{len(in_level)} | {_pct(hits, len(in_level))} |"
+        )
+
+    runs = [records[q.id] for q in graded]
+    if runs:
+        n = len(runs)
+        tokens = sum(r["input_tokens"] + r["output_tokens"] for r in runs)
+        calls = sum(r["llm_calls"] for r in runs)
+        seconds = sum(r["seconds"] for r in runs)
+        failed = sum(r["failed_queries"] for r in runs)
+        give_ups = sum(r["outcome"] == "give_up" for r in runs)
+        step_limit = sum(r["outcome"] == "too_many_steps" for r in runs)
+        lines += [
+            "",
+            (
+                f"Per question, on average: {calls / n:.1f} LLM calls, "
+                f"{tokens / n:,.0f} tokens, {seconds / n:.0f} s. "
+                f"Total tokens: {tokens:,}."
+            ),
+            "",
+            (
+                f"Failed queries (then fixed or given up): {failed}. "
+                f"Give-ups: {give_ups}. Step limit reached: {step_limit}."
+            ),
+        ]
+
+    lines += [
+        "",
+        "| Question | Level | Result | LLM calls | Tokens | Seconds |",
+        "|---|---|---|---|---|---|",
+    ]
+    for q in graded:
+        r, status = records[q.id], grades[q.id]["status"]
+        lines.append(
+            f"| {q.id} | {q.level} | {'ok' if status == 'correct' else status} "
+            f"| {r['llm_calls']} | {r['input_tokens'] + r['output_tokens']:,} "
+            f"| {r['seconds']:.0f} |"
+        )
+
+    failures = [q for q in graded if grades[q.id]["status"] != "correct"]
+    lines += ["", "## Failures", ""]
+    if not failures:
+        lines.append("None.")
+    for q in failures:
+        r, g = records[q.id], grades[q.id]
+        got = _as_text(g["rows"][:5]) if g["rows"] is not None else "nothing"
+        more = " (first 5 rows)" if g["rows"] and len(g["rows"]) > 5 else ""
+        lines += [
+            f"### {q.id} (level {q.level}): {g['status']}",
+            "",
+            f"Question: {q.question}",
+            "",
+            f"- Expected: `{_as_text(q.expected)}`",
+            f"- Got{more}: `{got}`" + (f" ({g['error']})" if g.get("error") else ""),
+            "",
+            "Agent SQL:",
+            "",
+            "```sql",
+            (r.get("sql") or "-- no query").strip(),
+            "```",
+            "",
+            "Agent answer:",
+            "",
+            *[f"> {line}" for line in r["answer"].splitlines() or [""]],
+            "",
+        ]
+    return "\n".join(lines).rstrip() + "\n"
+
+
 # --- Command line ---------------------------------------------------------------
 
 
@@ -308,6 +434,24 @@ def _run_command(questions: list[Question], args: argparse.Namespace) -> None:
     asyncio.run(run_agent(pending, model_name, path))
 
 
+def _score_command(questions: list[Question], args: argparse.Namespace) -> None:
+    model_name = resolve_model_name(args.model)
+    path = results_path(model_name)
+    records = {record["id"]: record for record in load_results(path)}
+    if not records:
+        sys.exit(f"No results in {path}: run `uv run f1-eval run` first.")
+    with open_database(DATABASE_PATH) as con:
+        grades = {
+            q.id: grade(q, records[q.id], con) for q in questions if q.id in records
+        }
+    report = render_report(model_name, questions, records, grades)
+    report_path = path.with_suffix(".md")
+    report_path.write_text(report, encoding="utf-8")
+    # The summary is the report up to the per-question table.
+    print(report.split("\n| Question |")[0].rstrip())
+    print(f"\nFull report: {report_path.relative_to(PROJECT_ROOT)}")
+
+
 def main() -> None:
     """Entry point for `uv run f1-eval`."""
     load_dotenv()  # GROQ_API_KEY and F1_AGENT_MODEL, for `run`
@@ -322,10 +466,16 @@ def main() -> None:
     run.add_argument("--model", help='"provider:model" (default: F1_AGENT_MODEL)')
     run.add_argument("--only", nargs="+", metavar="ID", help="only these question ids")
     run.add_argument("--limit", type=int, help="at most this many pending questions")
+    score = commands.add_parser(
+        "score", help="grade the saved answers and write a Markdown report"
+    )
+    score.add_argument("--model", help='"provider:model" (default: F1_AGENT_MODEL)')
     args = parser.parse_args()
 
     questions = load_questions()
     if args.command == "check":
         _check_command(questions)
-    else:
+    elif args.command == "run":
         _run_command(questions, args)
+    else:
+        _score_command(questions, args)
