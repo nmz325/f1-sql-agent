@@ -101,7 +101,7 @@ models:
 
   - name: fct_qualifying
     description: >
-      One row per driver and race qualifying. Pole position is qualifying_position = 1.
+      One row per driver and race qualifying, available from the 1994 season. Pole position is qualifying_position = 1.
       The actual starting position can differ because of grid penalties: use
       fct_race_results.grid_position for it. Q2 and Q3 only exist since the knockout
       format introduced in 2006.
@@ -168,7 +168,7 @@ models:
   - name: fct_lap_times
     description: >
       One row per driver, race and lap, with the lap time in milliseconds.
-      Not available for the early decades of the championship.
+      Available from the 1996 season.
     config:
       contract:
         enforced: true
@@ -210,7 +210,7 @@ models:
 
   - name: fct_pit_stops
     description: >
-      One row per pit stop. pit_stop_duration_ms is the time spent in the pit lane,
+      One row per pit stop, available from the 2011 season. pit_stop_duration_ms is the time spent in the pit lane,
       not only the stationary time. Stops during red flags can last several minutes,
       so exclude them (e.g. pit_stop_duration_ms < 60000) for typical pit stop analysis.
     config:
