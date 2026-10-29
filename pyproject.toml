@@ -12,6 +12,7 @@ dependencies = [
     "dbt-duckdb>=1.11.1",
     "duckdb>=2.0.0",
     "kagglehub>=1.0.3",
+    "pydantic>=2.14.1",
     "python-dotenv>=1.2.4",
 ]
 

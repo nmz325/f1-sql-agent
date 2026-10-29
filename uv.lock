@@ -369,6 +369,7 @@ dependencies = [
     { name = "dbt-duckdb" },
     { name = "duckdb" },
     { name = "kagglehub" },
+    { name = "pydantic" },
     { name = "python-dotenv" },
 ]
 
@@ -384,6 +385,7 @@ requires-dist = [
     { name = "dbt-duckdb", specifier = ">=1.11.1" },
     { name = "duckdb", specifier = ">=2.0.0" },
     { name = "kagglehub", specifier = ">=1.0.3" },
+    { name = "pydantic", specifier = ">=2.14.1" },
     { name = "python-dotenv", specifier = ">=1.2.4" },
 ]
 
