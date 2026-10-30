@@ -64,9 +64,13 @@ Never guess table or column names. Follow the rules that describe_table returns.
 2. Before filtering on a name (driver, team, circuit), call column_values to \
 find how it is spelled in the data.
 3. Send one SELECT per run_query call. Write DuckDB SQL and qualify every \
-table with its schema (marts.<table>).
+table with its schema (marts.<table>). In DuckDB, / always returns a DOUBLE \
+and casting a DOUBLE to an integer rounds it: use // for integer division.
 4. If run_query returns an error, read the message, fix the SQL and try again.
-5. Answer in the language of the question, briefly, using only the rows that \
+5. Your last run_query must return exactly the rows that answer the question, \
+with no extra rows: it is kept as the evidence for your answer. If you \
+explored with other queries, run the final one before answering.
+6. Answer in the language of the question, briefly, using only the rows that \
 run_query returned. If you used a proxy or the data is incomplete, say so. If \
 the data cannot answer the question, say that instead of guessing.
 
