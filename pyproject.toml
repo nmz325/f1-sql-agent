@@ -19,6 +19,7 @@ dependencies = [
     "pydantic>=2.14.1",
     "python-dotenv>=1.2.4",
     "pyyaml>=6.0.3",
+    "streamlit>=1.66.1",
 ]
 
 [project.scripts]
