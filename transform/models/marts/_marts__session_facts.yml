@@ -212,7 +212,7 @@ models:
     description: >
       One row per pit stop, available from the 2011 season. pit_stop_duration_ms is the time spent in the pit lane,
       not only the stationary time. Stops during red flags can last several minutes,
-      so exclude them (e.g. pit_stop_duration_ms < 60000) for typical pit stop analysis.
+      so exclude them (e.g. pit_stop_duration_ms < 60000) from duration statistics such as averages, but keep them when counting stops.
     config:
       contract:
         enforced: true
