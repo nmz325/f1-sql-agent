@@ -11,6 +11,12 @@ The graph is the simplest agent pattern, an LLM calling tools in a loop:
 - A failed run_query comes back with DuckDB's error message, so the LLM can
   fix its SQL (self-correction). After MAX_QUERY_RETRIES retries it gives up.
 
+Token budget: every LLM call sends the whole conversation again, and the free
+tier allows a few thousand tokens per minute. So the table list goes into the
+system prompt (read from the server at startup, not by the LLM), and a single
+describe_tables call returns the tables, their rules and examples, and how
+the names in the question are spelled.
+
 The LLM is chosen with F1_AGENT_MODEL in .env, written as "provider:model".
 Usage: uv run f1-sql-agent "Who won the 2008 drivers' championship?"
 """
@@ -52,31 +58,34 @@ DEFAULT_MODEL = "groq:openai/gpt-oss-120b"
 MAX_LLM_RETRIES = 5
 MAX_QUERY_RETRIES = 3  # failed run_query calls allowed after the first attempt
 MAX_STEPS = 30  # LangGraph steps per question: a safety net against endless loops
-EXAMPLES_URI = "f1://examples"
+# Called once at startup to fill the system prompt; not offered to the LLM.
+CATALOG_TOOL = "list_tables"
+# Server tools the LLM does not get: describe_tables(find_names) already says
+# how names are spelled, and each extra tool turn resends the whole context.
+HIDDEN_TOOLS = frozenset({CATALOG_TOOL, "column_values"})
 
 SYSTEM_PROMPT = """\
 You are a data analyst. You answer questions about Formula 1 (seasons 1950 to \
 2024) by querying a DuckDB database with the tools you have.
 
+Tables (schema marts):
+{catalog}
+
 How to work:
-1. Call list_tables, then describe_table for every table you plan to use. \
-Never guess table or column names. Follow the rules that describe_table returns.
-2. Before filtering on a name (driver, team, circuit), call column_values to \
-find how it is spelled in the data.
-3. Send one SELECT per run_query call. Write DuckDB SQL and qualify every \
+1. Start with one describe_tables call that lists every table you will use \
+(dim_race holds the season, round, date and circuit of each race) and, in \
+find_names, every driver, team, race or circuit the question names. Never \
+guess column names or spellings. Follow the rules and examples it returns.
+2. Send one SELECT per run_query call. Write DuckDB SQL and qualify every \
 table with its schema (marts.<table>). In DuckDB, / always returns a DOUBLE \
 and casting a DOUBLE to an integer rounds it: use // for integer division.
-4. If run_query returns an error, read the message, fix the SQL and try again.
-5. Your last run_query must return exactly the rows that answer the question, \
-with no extra rows: it is kept as the evidence for your answer. If you \
-explored with other queries, run the final one before answering.
-6. Answer in the language of the question, briefly, using only the rows that \
+3. If run_query returns an error, read the message, fix the SQL and try again.
+4. Aim for one query that answers the whole question. Your last run_query \
+must return exactly the rows that answer it, with no extra rows: it is kept \
+as the evidence for your answer.
+5. Answer in the language of the question, briefly, using only the rows that \
 run_query returned. If you used a proxy or the data is incomplete, say so. If \
 the data cannot answer the question, say that instead of guessing.
-
-Verified examples of good queries:
-
-{examples}
 """
 
 GIVE_UP_ANSWER = (
@@ -209,7 +218,11 @@ async def ask(graph: CompiledStateGraph, question: str) -> str:
 
 
 async def load_context(client: Client) -> tuple[list[dict[str, Any]], str]:
-    """Read the tool definitions and the verified examples from the MCP server."""
+    """Read the tool definitions and the table list from the MCP server.
+
+    The table list goes into the system prompt, so the LLM does not spend a
+    whole call (with the full prompt) asking for it.
+    """
     listing = await client.list_tools()
     tools = [
         {
@@ -221,10 +234,11 @@ async def load_context(client: Client) -> tuple[list[dict[str, Any]], str]:
             },
         }
         for tool in listing.tools
+        if tool.name not in HIDDEN_TOOLS
     ]
-    resource = await client.read_resource(EXAMPLES_URI)
-    examples = "\n".join(c.text for c in resource.contents if hasattr(c, "text"))
-    return tools, SYSTEM_PROMPT.format(examples=examples)
+    result = await client.call_tool(CATALOG_TOOL, {})
+    catalog = "\n".join(b.text for b in result.content if b.type == "text")
+    return tools, SYSTEM_PROMPT.format(catalog=catalog)
 
 
 def server_parameters() -> StdioServerParameters:

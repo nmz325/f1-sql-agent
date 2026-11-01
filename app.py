@@ -41,8 +41,10 @@ def _step_label(call: dict[str, Any]) -> str:
     """One tool call as a short line, e.g. `column_values` dim_driver.full_name."""
     args = call["args"]
     detail = ""
-    if call["name"] == "describe_table":
-        detail = args.get("table", "")
+    if call["name"] == "describe_tables":
+        detail = ", ".join(args.get("tables", []))
+        if args.get("find_names"):
+            detail += f" (names: {', '.join(args['find_names'])})"
     elif call["name"] == "column_values":
         detail = f"{args.get('table')}.{args.get('column')}"
         if args.get("contains"):
@@ -126,7 +128,7 @@ with st.sidebar:
     st.caption(f"Model: `{resolve_model_name()}`")
     st.caption(
         "Each question is answered on its own: the agent does not remember "
-        "earlier ones. Every answer uses about 15,000-25,000 tokens of the "
+        "earlier ones. Every answer uses about 6,000-12,000 tokens of the "
         "Groq free tier."
     )
 

@@ -45,7 +45,7 @@ def test_question_shows_answer_steps_and_evidence(
 ) -> None:
     sql = "SELECT count(*) AS races FROM marts.dim_race WHERE season = 2024"
     script = [
-        tool_call("list_tables", {}),
+        tool_call("describe_tables", {"tables": ["dim_race"]}),
         tool_call("run_query", {"sql": sql}),
         AIMessage("There were 24 Grand Prix in 2024."),
     ]
@@ -61,4 +61,4 @@ def test_question_shows_answer_steps_and_evidence(
     assert at.code[0].value == sql
     assert at.dataframe[0].value["races"].tolist() == [24]
     (turn,) = at.session_state.turns
-    assert turn["steps"] == ["`list_tables`", "`run_query`"]
+    assert turn["steps"] == ["`describe_tables` dim_race", "`run_query`"]

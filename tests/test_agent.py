@@ -27,17 +27,23 @@ fake_server = MCPServer("fake-f1")
 
 
 @fake_server.tool()
+def list_tables() -> str:
+    """List the tables."""
+    return "- dim_answer (one row per answer): The answers."
+
+
+@fake_server.tool()
+def column_values(table: str, column: str) -> str:
+    """Hidden from the LLM: describe_tables(find_names) replaces it."""
+    return "value\n1"
+
+
+@fake_server.tool()
 def run_query(sql: str) -> str:
     """Run one SELECT."""
     if sql != "SELECT 1":
         raise ToolError("Parser Error: syntax error")
     return "1 row\nanswer\n1"
-
-
-@fake_server.resource("f1://examples")
-def examples() -> str:
-    """Verified examples."""
-    return "Question: example?\nSQL:\nSELECT 1"
 
 
 class ScriptedModel(GenericFakeChatModel):
@@ -69,15 +75,17 @@ def run(script: list[AIMessage]) -> dict[str, Any]:
     return asyncio.run(go())
 
 
-def test_context_has_tools_and_examples() -> None:
+def test_table_list_goes_into_the_prompt_not_the_tools() -> None:
     async def go() -> tuple[list[dict[str, Any]], str]:
         async with Client(fake_server) as client:
             return await load_context(client)
 
     tools, system_prompt = asyncio.run(go())
+    # list_tables is called once at startup instead of by the LLM, and
+    # column_values is not offered: each extra tool turn costs a whole call.
     assert [t["function"]["name"] for t in tools] == ["run_query"]
     assert "sql" in tools[0]["function"]["parameters"]["properties"]
-    assert "Question: example?" in system_prompt
+    assert "- dim_answer (one row per answer): The answers." in system_prompt
 
 
 def test_answers_after_a_successful_query() -> None:
