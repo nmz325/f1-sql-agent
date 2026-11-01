@@ -120,7 +120,7 @@ def show_turn(turn: dict[str, Any]) -> None:
             )
 
 
-st.title("F1 SQL Agent")
+st.title("F1 SQL Agent", anchor=False)
 st.html('<div class="f1-stripe"></div>')
 st.caption(
     "Ask about 75 years of Formula 1 (1950-2024), in English or Spanish. The "

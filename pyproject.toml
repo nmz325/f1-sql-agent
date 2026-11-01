@@ -1,7 +1,7 @@
 [project]
 name = "f1-sql-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI agent that answers Formula 1 questions by writing SQL over a dbt-built DuckDB star schema"
 readme = "README.md"
 authors = [
     { name = "nmz325", email = "nahuelms325@gmail.com" }

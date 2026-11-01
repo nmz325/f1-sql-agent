@@ -389,7 +389,7 @@ FUN_FACTS = (
         "{full_name} in {season}",
     ),
     (
-        "Most different winners in a season",
+        "Most winners in a season",
         """
         SELECT r.season, count(DISTINCT rr.driver_id) AS winners
         FROM marts.fct_race_results AS rr
@@ -418,7 +418,7 @@ FUN_FACTS = (
         "{full_name}, {season} {race_name}",
     ),
     (
-        "Country with the most Grands Prix",
+        "Country with most races",
         """
         SELECT circuit_country, count(*) AS races
         FROM marts.dim_race

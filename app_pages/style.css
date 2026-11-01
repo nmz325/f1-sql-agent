@@ -1,13 +1,28 @@
 /* F1 touches for the whole app. The red accent itself comes from
    .streamlit/config.toml (primaryColor). */
 
-/* Checkered flag stripe, placed under page titles. */
+/* Checkered flag stripe with a red lead-in, placed under page titles. */
 .f1-stripe {
-  width: 168px;
+  width: 204px;
   height: 12px;
   margin: -0.4rem 0 0.6rem;
   border-radius: 2px;
-  background: repeating-conic-gradient(#f0efec 0 25%, #15161a 0 50%) 0 0 / 12px 12px;
+  background:
+    linear-gradient(#e10600, #e10600) 0 0 / 36px 100% no-repeat,
+    repeating-conic-gradient(#f0efec 0 25%, #15161a 0 50%) 36px 0 / 12px 12px;
+}
+
+/* Red accents, like a team livery: a line along the top of the page, a
+   marker on the current page in the menu and an edge on the metric tiles. */
+header[data-testid="stHeader"] {
+  border-top: 3px solid #e10600;
+}
+[data-testid="stSidebarNavLink"][aria-current="page"] {
+  box-shadow: inset 3px 0 0 #e10600;
+}
+[data-testid="stMetric"] {
+  border-left: 3px solid #e10600 !important;
+  padding-left: 0.9rem;
 }
 
 /* Running indicator (top right): a spinning soft tyre, red sidewall and a

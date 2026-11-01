@@ -114,4 +114,4 @@ def test_fun_facts_match_known_records() -> None:
     facts = {fact.title: fact for fact in explore.fun_facts()}
     assert facts["Youngest race winner"].value == "18 years old"
     assert facts["Youngest race winner"].detail.startswith("Max Verstappen")
-    assert facts["Most different winners in a season"].detail.endswith("1982")
+    assert facts["Most winners in a season"].detail.endswith("1982")
