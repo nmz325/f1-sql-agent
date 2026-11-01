@@ -84,10 +84,22 @@ def _root_cause(exc: BaseException) -> BaseException:
     return exc
 
 
+# The agent answers wearing a racing helmet.
+AGENT_AVATAR = ":material/sports_motorsports:"
+# Shown while the agent works; style.css animates the five start lights.
+START_LIGHTS = """
+<div class="f1-loader">
+  <div class="f1-lights"><span></span><span></span><span></span><span></span><span></span></div>
+  <div class="f1-loader-text">Lights out! The agent is reading the tables and
+  writing SQL...</div>
+</div>
+"""
+
+
 def show_turn(turn: dict[str, Any]) -> None:
     with st.chat_message("user"):
         st.markdown(turn["question"])
-    with st.chat_message("assistant"):
+    with st.chat_message("assistant", avatar=AGENT_AVATAR):
         st.markdown(turn["answer"])
         with st.expander("How this answer was computed"):
             st.markdown("**Agent steps**")
@@ -109,6 +121,7 @@ def show_turn(turn: dict[str, Any]) -> None:
 
 
 st.title("F1 SQL Agent")
+st.html('<div class="f1-stripe"></div>')
 st.caption(
     "Ask about 75 years of Formula 1 (1950-2024), in English or Spanish. The "
     "agent writes and runs SQL on a DuckDB database and shows the query behind "
@@ -125,6 +138,7 @@ with st.sidebar:
         "earlier ones. Every answer uses about 6,000-12,000 tokens of the "
         "Groq free tier."
     )
+    st.divider()  # before the author links that app.py adds
 
 if "turns" not in st.session_state:
     st.session_state.turns = []
@@ -136,7 +150,9 @@ question = st.chat_input("Ask a question about F1 history") or clicked
 if question:
     with st.chat_message("user"):
         st.markdown(question)
-    with st.spinner("The agent is exploring the data..."):
+    with st.chat_message("assistant", avatar=AGENT_AVATAR):
+        lights = st.empty()
+        lights.html(START_LIGHTS)
         try:
             new_turn = ask_agent(question)
         except Exception as exc:  # noqa: BLE001 - show any failure on the page
@@ -146,6 +162,8 @@ if question:
             else:
                 st.error(f"Something went wrong: {error!r}")
             new_turn = None
+        finally:
+            lights.empty()
     if new_turn is not None:
         st.session_state.turns.append(new_turn)
         st.rerun()  # draw the history again, now with the new answer

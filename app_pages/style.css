@@ -1,0 +1,71 @@
+/* F1 touches for the whole app. The red accent itself comes from
+   .streamlit/config.toml (primaryColor). */
+
+/* Checkered flag stripe, placed under page titles. */
+.f1-stripe {
+  width: 168px;
+  height: 12px;
+  margin: -0.4rem 0 0.6rem;
+  border-radius: 2px;
+  background: repeating-conic-gradient(#f0efec 0 25%, #15161a 0 50%) 0 0 / 12px 12px;
+}
+
+/* Running indicator (top right): a spinning soft tyre, red sidewall and a
+   white mark that shows the rotation, instead of Streamlit's running man. */
+[data-testid="stStatusWidgetRunningIcon"] svg {
+  display: none;
+}
+[data-testid="stStatusWidgetRunningIcon"]::before {
+  content: "";
+  display: block;
+  width: 1.4rem;
+  height: 1.4rem;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: radial-gradient(circle, #8a8981 0 22%, #15161a 24%);
+  border: 4px solid #e10600;
+  border-top-color: #f0efec;
+  animation: f1-tyre 0.6s linear infinite;
+}
+@keyframes f1-tyre {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Start lights loader: five red lights come on one by one, then all go out
+   together ("lights out and away we go"), on a loop. */
+.f1-loader {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+}
+.f1-lights {
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid #2b2c31;
+  border-radius: 6px;
+  background: #15161a;
+}
+.f1-lights span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #2b2c31;
+  animation: 3s linear infinite;
+}
+.f1-lights span:nth-child(1) { animation-name: f1-light-1; }
+.f1-lights span:nth-child(2) { animation-name: f1-light-2; }
+.f1-lights span:nth-child(3) { animation-name: f1-light-3; }
+.f1-lights span:nth-child(4) { animation-name: f1-light-4; }
+.f1-lights span:nth-child(5) { animation-name: f1-light-5; }
+@keyframes f1-light-1 { 0%, 9% { background: #2b2c31; } 10%, 74% { background: #e10600; box-shadow: 0 0 8px #e10600; } 75%, 100% { background: #2b2c31; } }
+@keyframes f1-light-2 { 0%, 19% { background: #2b2c31; } 20%, 74% { background: #e10600; box-shadow: 0 0 8px #e10600; } 75%, 100% { background: #2b2c31; } }
+@keyframes f1-light-3 { 0%, 29% { background: #2b2c31; } 30%, 74% { background: #e10600; box-shadow: 0 0 8px #e10600; } 75%, 100% { background: #2b2c31; } }
+@keyframes f1-light-4 { 0%, 39% { background: #2b2c31; } 40%, 74% { background: #e10600; box-shadow: 0 0 8px #e10600; } 75%, 100% { background: #2b2c31; } }
+@keyframes f1-light-5 { 0%, 49% { background: #2b2c31; } 50%, 74% { background: #e10600; box-shadow: 0 0 8px #e10600; } 75%, 100% { background: #2b2c31; } }
+.f1-loader-text {
+  color: #c3c2b7;
+  font-size: 0.95rem;
+}

@@ -124,6 +124,7 @@ def coverage_chart(summary: pd.DataFrame) -> alt.Chart:
 
 
 st.title("Explore the data")
+st.html('<div class="f1-stripe"></div>')
 st.caption(
     "The data behind the agent: where it comes from, how it is transformed and "
     "what it shows."

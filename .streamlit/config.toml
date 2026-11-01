@@ -1,3 +1,14 @@
 # Opt out of Streamlit usage statistics for everyone running this project.
 [browser]
 gatherUsageStats = false
+
+[client]
+# Hide the developer options (such as Deploy). "minimal" would also remove
+# the running indicator, which style.css turns into a spinning tyre.
+toolbarMode = "viewer"
+
+[theme]
+base = "dark"
+# Formula 1 red, for buttons, links, tabs and focus rings. Charts keep their
+# own blue: red is the accent, not a data color.
+primaryColor = "#E10600"
