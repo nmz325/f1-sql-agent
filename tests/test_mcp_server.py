@@ -11,6 +11,7 @@ import duckdb
 import pytest
 from mcp import Client
 
+from f1_sql_agent import mcp_server
 from f1_sql_agent.mcp_server import EXAMPLES_URI, build_server, open_database
 from f1_sql_agent.semantic.layer import Example, SemanticLayer
 from f1_sql_agent.semantic.models import Catalog, Column, Table
@@ -70,17 +71,53 @@ async def test_exposes_four_read_only_tools(client: Client) -> None:
     tools = (await client.list_tools()).tools
     assert [tool.name for tool in tools] == [
         "list_tables",
-        "describe_table",
+        "describe_tables",
         "column_values",
         "run_query",
     ]
     assert all(tool.annotations and tool.annotations.read_only_hint for tool in tools)
 
 
-async def test_describe_table_lists_the_tables_when_unknown(client: Client) -> None:
-    is_error, text = await call(client, "describe_table", table="drivers")
+async def test_describe_tables_lists_the_tables_when_unknown(client: Client) -> None:
+    is_error, text = await call(client, "describe_tables", tables=["drivers"])
     assert is_error
     assert "Available tables: dim_driver" in text
+
+
+async def test_describe_tables_accepts_schema_and_repeats(client: Client) -> None:
+    is_error, text = await call(
+        client, "describe_tables", tables=["marts.dim_driver", "DIM_DRIVER"]
+    )
+    assert not is_error
+    assert text.count("## dim_driver") == 1
+    assert "Question: Who?" in text  # the example that reads dim_driver
+    assert "How the names are written" not in text  # no find_names given
+
+
+async def test_describe_tables_finds_how_names_are_written(client: Client) -> None:
+    is_error, text = await call(
+        client,
+        "describe_tables",
+        tables=["dim_driver"],
+        find_names=["raikkonen", "Schumacher"],
+    )
+    assert not is_error
+    assert text.endswith(
+        "## How the names are written\n\n"
+        "- 'raikkonen': dim_driver.full_name: Kimi Räikkönen\n"
+        "- 'Schumacher': no match; search a shorter part of it, such as the surname"
+    )
+
+
+async def test_find_names_says_when_there_are_more_matches(
+    client: Client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(mcp_server, "MAX_NAME_MATCHES", 2)
+    # The three test drivers all have an 'n' in their name.
+    _, text = await call(
+        client, "describe_tables", tables=["dim_driver"], find_names=["n"]
+    )
+    assert text.endswith("- 'n': dim_driver.full_name: Ayrton Senna, Juan Fangio, ...")
 
 
 async def test_column_values_ignores_accents_and_case(client: Client) -> None:

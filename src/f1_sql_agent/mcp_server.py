@@ -2,11 +2,13 @@
 
 Tools (the model decides when to call them):
 - list_tables: the tables, what one row is, and a one-line summary
-- describe_table: columns, keys, joins, rules and metrics of one table
+- describe_tables: columns, keys, joins, metrics, rules and verified examples
+  of the tables a question needs, in one call
 - column_values: how values are actually written (accents, abbreviations)
 - run_query: run one SELECT and get the rows back as CSV
 
-Resource (the agent reads it once, for its system prompt):
+Resource (for MCP clients that want every example at once; our agent gets
+the relevant ones from describe_tables):
 - f1://examples: verified question/SQL pairs
 
 Safety does not depend on the SQL being well-behaved: the database is opened
@@ -42,15 +44,19 @@ from f1_sql_agent.config import (
 )
 from f1_sql_agent.semantic.layer import SemanticLayer, load_semantic_layer
 from f1_sql_agent.semantic.manifest import EXPOSED_SCHEMA
-from f1_sql_agent.semantic.render import render_catalog, render_examples, render_table
+from f1_sql_agent.semantic.render import (
+    render_catalog,
+    render_examples,
+    render_tables,
+)
 
 EXAMPLES_URI = "f1://examples"
 
 INSTRUCTIONS = """\
 Read-only access to Formula 1 World Championship data (seasons 1950-2024) in \
-DuckDB. Workflow: list_tables, then describe_table for each table you need \
-(follow its rules), column_values to check how names are written, and \
-run_query. Verified examples are in the resource f1://examples."""
+DuckDB. Workflow: list_tables, then describe_tables once with every table you \
+need (follow its rules and examples), column_values to check how names are \
+written, and run_query. All verified examples are in the resource f1://examples."""
 
 # DuckDB settings for running SQL written by a model.
 SAFE_CONFIG = {
@@ -61,6 +67,15 @@ SAFE_CONFIG = {
     # A query cannot switch the settings above back on.
     "lock_configuration": True,
 }
+
+# Columns holding the names users type, searched by describe_tables(find_names).
+NAME_COLUMNS = (
+    ("dim_driver", "full_name"),
+    ("dim_constructor", "constructor_name"),
+    ("dim_race", "race_name"),
+    ("dim_race", "circuit_name"),
+)
+MAX_NAME_MATCHES = 5  # per name and column
 
 # Hints for MCP clients: the tools change nothing and only see this database.
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
@@ -115,6 +130,50 @@ def build_server(
                 timer.cancel()
         return columns, rows
 
+    def distinct_values(
+        table: str, column: str, contains: str | None, limit: int
+    ) -> list[tuple[Any, ...]]:
+        """Distinct values of a column, most frequent first, optionally only
+        those containing `contains` (ignoring case and accents)."""
+        # Table and column names come from the catalog, never from the model;
+        # the search text is passed as a parameter.
+        sql = f"""
+            SELECT "{column}" AS value, count(*) AS rows_with_value
+            FROM {EXPOSED_SCHEMA}."{table}"
+            WHERE $contains IS NULL OR contains(
+                strip_accents(lower(CAST("{column}" AS VARCHAR))),
+                strip_accents(lower($contains))
+            )
+            GROUP BY ALL
+            ORDER BY rows_with_value DESC, value
+            LIMIT {int(limit)}
+        """
+        return query(sql, {"contains": contains})[1]
+
+    # Name columns of this catalog that describe_tables searches.
+    name_columns = [
+        (table, column)
+        for table, column in NAME_COLUMNS
+        if table in tables and any(col.name == column for col in tables[table].columns)
+    ]
+
+    def find_names_in_data(names: list[str]) -> str:
+        """How each name typed by the user is written in the name columns."""
+        lines = []
+        for text in dict.fromkeys(name.strip() for name in names if name.strip()):
+            matches = []
+            for table, column in name_columns:
+                rows = distinct_values(table, column, text, MAX_NAME_MATCHES + 1)
+                if rows:
+                    values = ", ".join(str(row[0]) for row in rows[:MAX_NAME_MATCHES])
+                    more = ", ..." if len(rows) > MAX_NAME_MATCHES else ""
+                    matches.append(f"{table}.{column}: {values}{more}")
+            found = "; ".join(matches) or (
+                "no match; search a shorter part of it, such as the surname"
+            )
+            lines.append(f"- {text!r}: {found}")
+        return "## How the names are written\n\n" + "\n".join(lines)
+
     def table_or_error(table: str) -> str:
         """Accept 'dim_race', 'DIM_RACE' or 'marts.dim_race'."""
         name = table.strip().lower().removeprefix(f"{EXPOSED_SCHEMA}.")
@@ -127,24 +186,47 @@ def build_server(
     def list_tables() -> str:
         """List the tables you can query: name, grain (what one row is) and a summary.
 
-        Start here, then call describe_table for the tables a question needs.
+        Start here, then call describe_tables with the tables a question needs.
         """
         return render_catalog(layer)
 
     @server.tool(annotations=READ_ONLY)
-    def describe_table(
-        table: Annotated[
-            str, Field(description="Table name from list_tables, e.g. 'dim_race'.")
+    def describe_tables(
+        tables: Annotated[
+            list[str],
+            Field(
+                min_length=1,
+                description=(
+                    "Every table the query will use, e.g. "
+                    "['fct_race_results', 'dim_driver']."
+                ),
+            ),
         ],
+        find_names: Annotated[
+            list[str] | None,
+            Field(
+                description=(
+                    "Drivers, teams, races or circuits named in the question, "
+                    "just the name as the user wrote it, without years or "
+                    "words like 'Grand Prix', e.g. ['raikkonen', 'Monaco']. "
+                    "Returns how each one is written in the data."
+                )
+            ),
+        ] = None,
     ) -> str:
-        """Describe one table before querying it.
+        """Describe, in one call, all the tables you will query.
 
-        Returns its columns (type, meaning, valid values, joins to other
-        tables), its keys, and the business rules and metrics that apply to
-        it. Follow the rules: they say how to count starts, wins, poles and
-        championships correctly.
+        Returns their columns (type, meaning, valid values, joins to other
+        tables), keys and metrics, the business rules that apply to them and
+        verified example queries that use them. Follow the rules: they say
+        how to count starts, wins, poles and championships correctly. With
+        find_names it also returns how those names are spelled in the data.
         """
-        return render_table(layer, table_or_error(table))
+        names = dict.fromkeys(table_or_error(table) for table in tables)
+        text = render_tables(layer, list(names))
+        if find_names:
+            text += "\n\n" + find_names_in_data(find_names)
+        return text
 
     @server.tool(annotations=READ_ONLY)
     def column_values(
@@ -172,23 +254,10 @@ def build_server(
             raise ToolError(
                 f"{name} has no column {column!r}. Columns: {', '.join(columns)}."
             )
-        # Table and column names come from the catalog, never from the model;
-        # the search text is passed as a parameter.
-        sql = f"""
-            SELECT "{column}" AS value, count(*) AS rows_with_value
-            FROM {EXPOSED_SCHEMA}."{name}"
-            WHERE $contains IS NULL OR contains(
-                strip_accents(lower(CAST("{column}" AS VARCHAR))),
-                strip_accents(lower($contains))
-            )
-            GROUP BY ALL
-            ORDER BY rows_with_value DESC, value
-            LIMIT 20
-        """
-        names, rows = query(sql, {"contains": contains})
+        rows = distinct_values(name, column, contains, 20)
         if not rows:
             return f"No value of {name}.{column} contains {contains!r}."
-        return _to_csv(names, rows)
+        return _to_csv(["value", "rows_with_value"], rows)
 
     @server.tool(
         annotations=READ_ONLY,

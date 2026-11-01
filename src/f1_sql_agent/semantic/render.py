@@ -1,11 +1,15 @@
 """Render the semantic layer as compact text for the agent.
 
 The agent never receives the whole layer at once (just-in-time context): it
-gets the table list first and asks for the detail of the tables it needs.
-These functions produce exactly what the MCP tools will return in phase 3.
+gets the table list in its system prompt and asks, in one call, for the
+detail of the tables it needs. Everything the agent reads is sent again with
+every LLM call, so nothing is repeated: a rule shared by several tables is
+written once, and only the examples that use the requested tables are shown.
 """
 
-from f1_sql_agent.semantic.layer import SemanticLayer
+from collections.abc import Sequence
+
+from f1_sql_agent.semantic.layer import Example, SemanticLayer
 from f1_sql_agent.semantic.models import Column, Table
 
 
@@ -17,14 +21,37 @@ def render_catalog(layer: SemanticLayer) -> str:
     )
 
 
-def render_table(layer: SemanticLayer, name: str) -> str:
-    """Everything the agent needs to query one table."""
-    table = layer.catalog.tables.get(name)
-    if table is None:
-        # The agent reads this message and can retry with a valid name.
-        available = ", ".join(layer.catalog.tables)
-        raise ValueError(f"Unknown table {name!r}. Available tables: {available}.")
+def render_tables(layer: SemanticLayer, names: Sequence[str]) -> str:
+    """Everything the agent needs to query some tables, as one text.
 
+    Each table with its columns and metrics, then the rules that apply to any
+    of them (once each), then the verified examples whose tables are all
+    among `names`.
+    """
+    for name in names:
+        if name not in layer.catalog.tables:
+            # The agent reads this message and can retry with a valid name.
+            available = ", ".join(layer.catalog.tables)
+            raise ValueError(f"Unknown table {name!r}. Available tables: {available}.")
+
+    parts = [_table(layer, layer.catalog.tables[name]) for name in names]
+    rules = [rule for rule in layer.rules if set(rule.tables) & set(names)]
+    if rules:
+        parts.append("## Rules\n\n" + "\n".join(f"- {_clean(r.text)}" for r in rules))
+    examples = [ex for ex in layer.examples if set(ex.tables) <= set(names)]
+    if examples:
+        parts.append(
+            "## Verified examples\n\n" + "\n\n".join(_example(ex) for ex in examples)
+        )
+    return "\n\n".join(parts)
+
+
+def render_examples(layer: SemanticLayer) -> str:
+    """Verified question/SQL pairs, to show the agent how queries should look."""
+    return "\n\n".join(_example(example) for example in layer.examples)
+
+
+def _table(layer: SemanticLayer, table: Table) -> str:
     parts = [
         f"## {table.name}",
         _sentence(table.description),
@@ -34,11 +61,7 @@ def render_table(layer: SemanticLayer, name: str) -> str:
         keys = "; ".join(" + ".join(key) for key in table.unique_keys)
         parts.append(f"Unique: {keys}.")
     parts.append("Columns:\n" + "\n".join(_column(col) for col in table.columns))
-
-    rules = layer.rules_for(name)
-    if rules:
-        parts.append("Rules:\n" + "\n".join(f"- {_clean(r.text)}" for r in rules))
-    metrics = layer.metrics_for(name)
+    metrics = layer.metrics_for(table.name)
     if metrics:
         parts.append(
             "Metrics:\n"
@@ -50,12 +73,8 @@ def render_table(layer: SemanticLayer, name: str) -> str:
     return "\n\n".join(parts)
 
 
-def render_examples(layer: SemanticLayer) -> str:
-    """Verified question/SQL pairs, to show the agent how queries should look."""
-    return "\n\n".join(
-        f"Question: {example.question}\nSQL:\n{example.sql.strip()}"
-        for example in layer.examples
-    )
+def _example(example: Example) -> str:
+    return f"Question: {example.question}\nSQL:\n{example.sql.strip()}"
 
 
 def _grain(table: Table) -> str:
@@ -72,7 +91,10 @@ def _column(col: Column) -> str:
     if col.references:
         text += f" -> {col.references.table}.{col.references.column}"
     details = [_sentence(col.description)] if col.description else []
-    if col.accepted_values:
+    # Skip the list when the description already names every value.
+    if col.accepted_values and not all(
+        value in col.description for value in col.accepted_values
+    ):
         values = ", ".join(f"'{value}'" for value in col.accepted_values)
         details.append(f"Values: {values}.")
     if details:

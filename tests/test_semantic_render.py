@@ -4,7 +4,7 @@ import pytest
 
 from f1_sql_agent.semantic.layer import Example, Metric, Rule, SemanticLayer
 from f1_sql_agent.semantic.models import Catalog, Column, ColumnRef, Table
-from f1_sql_agent.semantic.render import render_catalog, render_examples, render_table
+from f1_sql_agent.semantic.render import render_catalog, render_examples, render_tables
 
 RESULTS = Table(
     name="fct_results",
@@ -37,11 +37,22 @@ RACES = Table(
     name="dim_race",
     description="One row per race.",
     primary_key=("race_id",),
-    columns=(Column(name="race_id", data_type="integer", nullable=False),),
+    columns=(
+        Column(name="race_id", data_type="integer", nullable=False),
+        Column(
+            name="kind",
+            data_type="varchar",
+            description="race or sprint",
+            accepted_values=("race", "sprint"),
+        ),
+    ),
 )
 LAYER = SemanticLayer(
     catalog=Catalog(tables={"dim_race": RACES, "fct_results": RESULTS}),
-    rules=(Rule(id="starts", tables=("fct_results",), text="Filter starts."),),
+    rules=(
+        Rule(id="starts", tables=("fct_results",), text="Filter starts."),
+        Rule(id="finale", tables=("fct_results", "dim_race"), text="Use the finale."),
+    ),
     metrics=(
         Metric(
             name="wins",
@@ -54,6 +65,11 @@ LAYER = SemanticLayer(
         Example(
             id="champion", question="Who won?", sql="SELECT 1\nFROM marts.dim_race\n"
         ),
+        Example(
+            id="wins",
+            question="How many wins?",
+            sql="SELECT 1 FROM marts.fct_results JOIN marts.dim_race USING (race_id)",
+        ),
     ),
 )
 
@@ -65,8 +81,8 @@ def test_catalog_has_one_line_per_table() -> None:
     )
 
 
-def test_table_shows_keys_columns_rules_and_metrics() -> None:
-    assert render_table(LAYER, "fct_results") == (
+def test_table_shows_keys_columns_metrics_and_rules() -> None:
+    assert render_tables(LAYER, ["fct_results"]) == (
         "## fct_results\n\n"
         "One row per race entry. Includes entries that did not start.\n\n"
         "Grain: one row per result_id.\n\n"
@@ -76,19 +92,36 @@ def test_table_shows_keys_columns_rules_and_metrics() -> None:
         "- race_id integer -> dim_race.race_id\n"
         "- result_type varchar: Values: 'classified', 'retired'.\n"
         "- race_time_ms bigint, nullable: Race time.\n\n"
-        "Rules:\n"
-        "- Filter starts.\n\n"
         "Metrics:\n"
-        "- wins = count(*) filter (where is_win) -- Races won."
+        "- wins = count(*) filter (where is_win) -- Races won.\n\n"
+        "## Rules\n\n"
+        "- Filter starts.\n"
+        "- Use the finale."
     )
+
+
+def test_shared_rules_appear_once_and_examples_need_all_their_tables() -> None:
+    both = render_tables(LAYER, ["fct_results", "dim_race"])
+    assert both.count("Use the finale.") == 1
+    assert "Question: Who won?" in both
+    assert "Question: How many wins?" in both
+    # The wins example also reads fct_results: it is not shown for dim_race alone.
+    races = render_tables(LAYER, ["dim_race"])
+    assert "Question: Who won?" in races
+    assert "How many wins?" not in races
+
+
+def test_values_already_in_the_description_are_not_repeated() -> None:
+    text = render_tables(LAYER, ["dim_race"])
+    assert "- kind varchar, nullable: race or sprint.\n" in text
 
 
 def test_unknown_table_lists_the_available_ones() -> None:
     with pytest.raises(ValueError, match="Available tables: dim_race, fct_results"):
-        render_table(LAYER, "fct_missing")
+        render_tables(LAYER, ["dim_race", "fct_missing"])
 
 
 def test_examples_show_question_and_sql() -> None:
-    assert render_examples(LAYER) == (
-        "Question: Who won?\nSQL:\nSELECT 1\nFROM marts.dim_race"
+    assert render_examples(LAYER).startswith(
+        "Question: Who won?\nSQL:\nSELECT 1\nFROM marts.dim_race\n\n"
     )

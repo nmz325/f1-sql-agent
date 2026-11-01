@@ -11,6 +11,7 @@ import duckdb
 import pytest
 
 from f1_sql_agent.config import DATABASE_PATH, MANIFEST_PATH, SEMANTIC_DIR
+from f1_sql_agent.mcp_server import NAME_COLUMNS
 from f1_sql_agent.semantic.layer import SemanticLayer, load_semantic_layer
 
 pytestmark = pytest.mark.skipif(
@@ -85,3 +86,8 @@ def test_pit_stop_trend_is_plausible(
 def test_every_example_has_a_check(layer: SemanticLayer) -> None:
     # Adding an example without verifying its result must fail here.
     assert {e.id for e in layer.examples} == set(EXPECTED) | SANITY_CHECKED
+
+
+def test_name_columns_searched_by_describe_tables_exist(layer: SemanticLayer) -> None:
+    for table, column in NAME_COLUMNS:
+        layer.catalog.tables[table].column(column)  # KeyError if renamed

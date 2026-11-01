@@ -49,10 +49,13 @@ the project (`uv run dbt parse` or `uv run dbt build`, from `transform/`).
 ## What the agent reads
 
 `f1_sql_agent.semantic.render` turns the layer into compact text, delivered
-just in time instead of all at once:
+just in time instead of all at once. Every LLM call sends the whole
+conversation again, so the text avoids repetition: rules shared by several
+tables appear once, and only the examples that use the requested tables are
+included.
 
-| Function | Content | Used by (phase 3) |
+| Function | Content | Used by |
 |---|---|---|
-| `render_catalog` | One line per table: name, grain, summary | `list_tables` tool |
-| `render_table` | Columns, keys, relationships, valid values, rules and metrics of one table | `describe_table` tool |
-| `render_examples` | Verified examples | System prompt |
+| `render_catalog` | One line per table: name, grain, summary | `list_tables` tool, read once into the agent's system prompt |
+| `render_tables` | Columns, keys, relationships, valid values and metrics of several tables, their rules (once each) and the examples whose tables are all among them | `describe_tables` tool |
+| `render_examples` | Every verified example | `f1://examples` resource, for other MCP clients |
