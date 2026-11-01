@@ -24,3 +24,13 @@ uv sync
 cp .env.example .env   # then add your GROQ_API_KEY
 uv run pytest
 ```
+
+## Web app
+
+```bash
+uv run streamlit run app.py   # http://localhost:8501
+```
+
+Two pages: **Ask the agent** (questions in English or Spanish, with the SQL
+behind every answer) and **Explore the data** (the dataset, its tables, the
+lineage from the raw files to the star schema, charts and fun facts).

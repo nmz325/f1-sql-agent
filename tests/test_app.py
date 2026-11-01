@@ -40,6 +40,26 @@ def test_page_renders_without_asking_anything() -> None:
     not (MANIFEST_PATH.is_file() and DATABASE_PATH.is_file()),
     reason="needs the dbt build output (manifest.json and data/f1.duckdb)",
 )
+def test_explore_page_shows_its_five_sections() -> None:
+    at = AppTest.from_file(APP, default_timeout=60).run()
+    at.switch_page("app_pages/explore.py").run()
+    assert not at.exception
+    assert at.title[0].value == "Explore the data"
+    assert [tab.label for tab in at.tabs] == [
+        "Overview",
+        "Tables",
+        "Data lineage",
+        "Charts",
+        "Fun facts",
+    ]
+    assert at.metric[0].label == "Seasons"
+    assert at.metric[0].value == "75"
+
+
+@pytest.mark.skipif(
+    not (MANIFEST_PATH.is_file() and DATABASE_PATH.is_file()),
+    reason="needs the dbt build output (manifest.json and data/f1.duckdb)",
+)
 def test_question_shows_answer_steps_and_evidence(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
