@@ -22,6 +22,7 @@ STYLE = ROOT / "app_pages" / "style.css"
 # An original logo: a checkered flag on a red badge (not the Formula 1 logo).
 LOGO = ROOT / "assets" / "logo.svg"
 LOGO_ICON = ROOT / "assets" / "logo_icon.svg"
+FAVICON = ROOT / "assets" / "favicon.png"  # the same mark, for the browser tab
 REPO_URL = "https://github.com/nmz325/f1-sql-agent"
 GITHUB_URL = "https://github.com/nmz325"
 LINKEDIN_URL = "https://www.linkedin.com/in/nahuel-martinez-77161827b/"
@@ -33,7 +34,7 @@ explore = st.Page(
 page = st.navigation([ask, explore])
 st.set_page_config(
     page_title=f"{page.title} | F1 SQL Agent",
-    page_icon=":checkered_flag:",
+    page_icon=str(FAVICON),
     # Tables and charts need the room; the chat reads better narrow.
     layout="wide" if page.title == explore.title else "centered",
 )

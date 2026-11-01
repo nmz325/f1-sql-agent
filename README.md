@@ -11,14 +11,15 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/chat.png" alt="The agent answering which drivers won a Grand Prix in 2024, with the SQL and the rows behind the answer" width="640">
+  <img src="docs/images/chat.png" alt="The agent answering how many Grands Prix Ferrari won each season from 2015 to 2024, with a chart, its steps and the SQL behind the answer" width="600">
 </p>
 
 ## What it does
 
 - **Answers questions with evidence.** Every answer comes with the agent's
   steps, its final SQL query and the rows that query returned, so it can be
-  checked instead of trusted.
+  checked instead of trusted, plus a chart when the rows suit one and what
+  the answer cost in LLM calls, tokens and seconds.
 - **Knows the data, not just the schema.** A semantic layer tells the agent
   how to count starts, wins and championships correctly (shared cars in the
   1950s, entries that never started, sprints that are not Grands Prix).

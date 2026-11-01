@@ -12,6 +12,20 @@
     repeating-conic-gradient(#f0efec 0 25%, #15161a 0 50%) 36px 0 / 12px 12px;
 }
 
+/* Small red label above a section title (f1_sql_agent.ui.overline). */
+.f1-overline {
+  margin-top: 0.8rem;
+  color: #e10600;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+/* Pull the title up to its label, past the gap between page elements. */
+[data-testid="stElementContainer"]:has(.f1-overline) {
+  margin-bottom: -1.1rem;
+}
+
 /* Red accents, like a team livery: a line along the top of the page, a
    marker on the current page in the menu and an edge on the metric tiles. */
 header[data-testid="stHeader"] {

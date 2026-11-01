@@ -13,8 +13,10 @@ import time
 from typing import Any
 
 import duckdb
+import pandas as pd
 import streamlit as st
 
+from f1_sql_agent import explore, ui
 from f1_sql_agent.agent import open_agent, resolve_model_name, run_question
 from f1_sql_agent.config import DATABASE_PATH, MAX_ROWS
 from f1_sql_agent.evaluation import summarize_run
@@ -25,6 +27,60 @@ EXAMPLES = (
     "\u00bfQu\u00e9 constructor gan\u00f3 m\u00e1s carreras en los a\u00f1os 80?",
     "How many pole positions does Lewis Hamilton have?",
 )
+# Execution accuracy on the main evaluation set (22 of 25), see
+# eval/results/baseline/. Update it when the evaluation is run again.
+ACCURACY = "88%"
+STEPS = (
+    (
+        ":material/chat:",
+        "Ask",
+        "In English or Spanish, about any season from 1950 to 2024.",
+    ),
+    (
+        ":material/code:",
+        "The agent writes SQL",
+        "It reads the tables and their rules, then queries DuckDB.",
+    ),
+    (
+        ":material/fact_check:",
+        "Check the evidence",
+        "Every answer shows its steps, its query and the rows behind it.",
+    ),
+)
+
+
+@st.cache_data
+def headline_counts() -> pd.Series:
+    return explore.fetch(explore.OVERVIEW_SQL).iloc[0]
+
+
+def show_intro() -> None:
+    """What the page does, before the first question."""
+    if DATABASE_PATH.is_file():
+        counts = headline_counts()
+        tiles = [
+            ("Seasons", f"{counts['seasons']}"),
+            ("Grands Prix", f"{counts['grands_prix']:,}"),
+            ("Accuracy", ACCURACY),
+        ]
+        for column, (label, value) in zip(st.columns(3), tiles, strict=True):
+            column.metric(
+                label,
+                value,
+                border=True,
+                help="Execution accuracy on 25 questions with verified answers."
+                if label == "Accuracy"
+                else None,
+            )
+    st.html(ui.overline("How it works"))
+    for column, (icon, title, text) in zip(st.columns(3), STEPS, strict=True):
+        with column.container(border=True, height="stretch"):
+            st.markdown(f"**{icon} {title}**")
+            st.caption(text)
+    st.caption(
+        f"Data: [{explore.DATASET_TITLE}]({explore.DATASET_URL}), Kaggle. "
+        "Pick a question in the sidebar or type your own below."
+    )
 
 
 async def _ask(question: str) -> tuple[str, list[Any]]:
@@ -101,23 +157,31 @@ def show_turn(turn: dict[str, Any]) -> None:
         st.markdown(turn["question"])
     with st.chat_message("assistant", avatar=AGENT_AVATAR):
         st.markdown(turn["answer"])
-        with st.expander("How this answer was computed"):
+        if turn["rows"]:
+            # A chart only when the rows have a shape that reads well as one.
+            chart = ui.chart_for(pd.DataFrame(turn["rows"]))
+            if chart is not None:
+                st.altair_chart(chart, width="stretch")
+        # What the answer cost, as small tags.
+        st.markdown(
+            f":gray-badge[:material/smart_toy: {turn['llm_calls']} LLM calls] "
+            f":gray-badge[:material/token: {turn['tokens']:,} tokens] "
+            f":gray-badge[:material/timer: {turn['seconds']:.0f} s]"
+        )
+        with st.expander("How this answer was computed", icon=":material/search:"):
             st.markdown("**Agent steps**")
             steps = [f"{n}. {step}" for n, step in enumerate(turn["steps"], start=1)]
             st.markdown("\n".join(steps) or "No tool calls.")
             if turn["sql"]:
+                # st.code has a copy button in its corner.
                 st.markdown("**Final query and its result**")
-                st.code(turn["sql"].strip(), language="sql")
+                st.code(turn["sql"].strip(), language="sql", wrap_lines=True)
                 if turn["rows"] is not None:
                     st.dataframe(turn["rows"], hide_index=True)
             else:
                 st.warning(
                     "The agent answered without a working query: nothing to check."
                 )
-            st.caption(
-                f"{turn['llm_calls']} LLM calls | {turn['tokens']:,} tokens | "
-                f"{turn['seconds']:.0f} s"
-            )
 
 
 st.title("F1 SQL Agent", anchor=False)
@@ -142,11 +206,15 @@ with st.sidebar:
 
 if "turns" not in st.session_state:
     st.session_state.turns = []
+# The chat input stays pinned to the bottom wherever it is called; reading it
+# first lets the intro disappear as soon as the first question is sent.
+clicked = next((ex for ex, hit in zip(EXAMPLES, clicks, strict=True) if hit), None)
+question = st.chat_input("Ask a question about F1 history") or clicked
+if not st.session_state.turns and not question:
+    show_intro()
 for turn in st.session_state.turns:
     show_turn(turn)
 
-clicked = next((ex for ex, hit in zip(EXAMPLES, clicks, strict=True) if hit), None)
-question = st.chat_input("Ask a question about F1 history") or clicked
 if question:
     with st.chat_message("user"):
         st.markdown(question)

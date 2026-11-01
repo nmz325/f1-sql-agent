@@ -12,3 +12,7 @@ base = "dark"
 # Formula 1 red, for buttons, links, tabs and focus rings. Charts keep their
 # own blue: red is the accent, not a data color.
 primaryColor = "#E10600"
+# Titillium Web (open source, SIL OFL), the typeface Formula 1 used until 2018,
+# loaded from Google Fonts.
+font = "'Titillium Web':https://fonts.googleapis.com/css2?family=Titillium+Web:wght@400;600;700&display=swap, sans-serif"
+codeFont = "monospace"
