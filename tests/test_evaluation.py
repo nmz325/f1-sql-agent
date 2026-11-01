@@ -11,6 +11,8 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from f1_sql_agent.agent import GIVE_UP_ANSWER, TOO_MANY_STEPS_ANSWER
 from f1_sql_agent.config import SEMANTIC_DIR
 from f1_sql_agent.evaluation import (
+    QUESTION_SETS,
+    RESULTS_DIR,
     Question,
     grade,
     load_questions,
@@ -18,6 +20,7 @@ from f1_sql_agent.evaluation import (
     outcome_of,
     overlapping_examples,
     render_report,
+    results_dir_for,
     results_match,
     results_path,
     summarize_run,
@@ -82,6 +85,23 @@ def test_real_question_set_is_valid() -> None:
     assert {q.level for q in questions} == {1, 2, 3, 4}
     examples = [example.question for example in load_examples(SEMANTIC_DIR)]
     assert overlapping_examples(questions, examples) == []
+
+
+def test_simple_question_set_is_valid() -> None:
+    simple = load_questions(QUESTION_SETS["simple"])
+    assert len(simple) >= 40
+    assert {q.level for q in simple} == {1, 2}
+    assert {q.language for q in simple} == {"en", "es"}
+    examples = [example.question for example in load_examples(SEMANTIC_DIR)]
+    assert overlapping_examples(simple, examples) == []
+    # Different from the main set, so the two measure different things.
+    main_questions = [q.question for q in load_questions()]
+    assert overlapping_examples(simple, main_questions) == []
+
+
+def test_results_of_other_sets_go_to_their_own_folder() -> None:
+    assert results_dir_for("main") == RESULTS_DIR
+    assert results_dir_for("simple") == RESULTS_DIR / "simple"
 
 
 def llm_turn(sql: str, call_id: str, tokens: int) -> AIMessage:
@@ -185,3 +205,31 @@ def test_report_shows_accuracy_and_failures() -> None:
     assert "### b (level 2): wrong_result" in report
     assert "SELECT 23" in report
     assert "> There were 23." in report
+    assert "| Language |" not in report  # every question is in English
+
+
+def test_report_of_a_mixed_language_set_shows_accuracy_by_language() -> None:
+    questions = [
+        races_question("a"),
+        races_question("b").model_copy(update={"language": "es"}),
+    ]
+    record = {
+        "answer": "24",
+        "sql": "SELECT 24",
+        "outcome": "answered",
+        "llm_calls": 3,
+        "input_tokens": 100,
+        "output_tokens": 10,
+        "seconds": 1.0,
+        "failed_queries": 0,
+    }
+    grades = {
+        "a": {"status": "correct", "rows": [(24,)]},
+        "b": {"status": "wrong_result", "rows": [(23,)]},
+    }
+    report = render_report(
+        "fake:model", questions, {"a": record, "b": record}, grades, "simple"
+    )
+    assert report.startswith("# Evaluation: fake:model (simple)")
+    assert "| en | 1/1 | 100% |" in report
+    assert "| es | 0/1 | 0% |" in report

@@ -1,0 +1,537 @@
+# Simple evaluation set: many short questions (one fact or one count), in
+# English and Spanish. Cheap to run often, so it catches regressions in the
+# basics: champions, race winners, name spelling and simple counts.
+#
+# Same rules as questions.yml:
+# - None of these questions may appear in semantic/examples.yml.
+# - `expected` holds the values the question asks for, cross-checked against
+#   well-known F1 statistics (not copied from the database).
+# - Levels: 1 a single fact, 2 a count or a simple ranking.
+# Run `uv run f1-eval check --set simple` after changing the data or this file.
+questions:
+  # --- Champions and standings ---------------------------------------------------
+  - id: champion_2008
+    level: 1
+    tags: [standings]
+    question: Who won the 2008 drivers' championship?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_driver_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2008 AND r.is_season_finale AND st.championship_position = 1
+    expected:
+      - [Lewis Hamilton]
+
+  - id: champion_2019_points
+    level: 1
+    tags: [standings]
+    question: How many points did the 2019 drivers' champion score, and who was he?
+    sql: |
+      SELECT d.full_name, st.championship_points
+      FROM marts.fct_driver_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2019 AND r.is_season_finale AND st.championship_position = 1
+    expected:
+      - [Lewis Hamilton, 413]
+
+  - id: constructors_champion_2010
+    level: 1
+    tags: [standings]
+    question: Which team won the 2010 constructors' championship?
+    sql: |
+      SELECT c.constructor_name
+      FROM marts.fct_constructor_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_constructor AS c USING (constructor_id)
+      WHERE r.season = 2010 AND r.is_season_finale AND st.championship_position = 1
+    expected:
+      - [Red Bull]
+
+  - id: constructors_champion_2024
+    level: 1
+    tags: [standings]
+    question: Which constructor won the 2024 constructors' championship?
+    sql: |
+      SELECT c.constructor_name
+      FROM marts.fct_constructor_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_constructor AS c USING (constructor_id)
+      WHERE r.season = 2024 AND r.is_season_finale AND st.championship_position = 1
+    expected:
+      - [McLaren]
+
+  - id: hamilton_final_position_2024
+    level: 1
+    tags: [standings]
+    question: In which position did Lewis Hamilton finish the 2024 drivers' championship?
+    sql: |
+      SELECT st.championship_position
+      FROM marts.fct_driver_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2024 AND r.is_season_finale AND d.full_name = 'Lewis Hamilton'
+    expected:
+      - [7]
+
+  # --- Race winners ----------------------------------------------------------------
+  - id: winner_monaco_2016
+    level: 1
+    tags: [race_winner]
+    question: Who won the 2016 Monaco Grand Prix?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2016 AND r.race_name = 'Monaco Grand Prix' AND rr.is_win
+    expected:
+      - [Lewis Hamilton]
+
+  - id: winner_first_race_2024
+    level: 1
+    tags: [race_winner]
+    question: Who won the first Grand Prix of the 2024 season?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2024 AND r.round = 1 AND rr.is_win
+    expected:
+      - [Max Verstappen]
+
+  - id: winner_sakhir_2020
+    level: 1
+    tags: [race_winner, name_matching]
+    question: Who won the 2020 Sakhir Grand Prix?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2020 AND r.race_name = 'Sakhir Grand Prix' AND rr.is_win
+    expected:
+      - [Sergio Pérez]
+
+  - id: winner_british_2024
+    level: 1
+    tags: [race_winner]
+    question: Who won the 2024 British Grand Prix?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2024 AND r.race_name = 'British Grand Prix' AND rr.is_win
+    expected:
+      - [Lewis Hamilton]
+
+  - id: winner_las_vegas_2024
+    level: 1
+    tags: [race_winner]
+    question: Who won the 2024 Las Vegas Grand Prix?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2024 AND r.race_name = 'Las Vegas Grand Prix' AND rr.is_win
+    expected:
+      - [George Russell]
+
+  - id: winner_japan_1988
+    level: 1
+    tags: [race_winner]
+    question: Who won the 1988 Japanese Grand Prix?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 1988 AND r.race_name = 'Japanese Grand Prix' AND rr.is_win
+    expected:
+      - [Ayrton Senna]
+
+  # --- Calendar ----------------------------------------------------------------------
+  - id: races_2023
+    level: 1
+    tags: [calendar]
+    question: How many Grand Prix were held in 2023?
+    sql: |
+      SELECT count(*) AS races
+      FROM marts.dim_race
+      WHERE season = 2023
+    expected:
+      - [22]
+
+  - id: races_1950
+    level: 1
+    tags: [calendar]
+    question: How many races counted for the 1950 World Championship?
+    sql: |
+      SELECT count(*) AS races
+      FROM marts.dim_race
+      WHERE season = 1950
+    expected:
+      - [7]
+
+  - id: monaco_races_held
+    level: 2
+    tags: [calendar, aggregation]
+    question: How many times has the Monaco Grand Prix been held as a World Championship race?
+    sql: |
+      SELECT count(*) AS editions
+      FROM marts.dim_race
+      WHERE race_name = 'Monaco Grand Prix'
+    expected:
+      - [70]
+
+  # --- Drivers ---------------------------------------------------------------------
+  - id: senna_nationality
+    level: 1
+    tags: [driver]
+    question: What nationality was Ayrton Senna?
+    sql: |
+      SELECT driver_nationality
+      FROM marts.dim_driver
+      WHERE full_name = 'Ayrton Senna'
+    expected:
+      - [Brazilian]
+
+  - id: michael_schumacher_birth_date
+    level: 1
+    tags: [driver, dates]
+    question: When was Michael Schumacher born?
+    sql: |
+      SELECT date_of_birth
+      FROM marts.dim_driver
+      WHERE full_name = 'Michael Schumacher'
+    expected:
+      - ["1969-01-03"]
+
+  - id: hamilton_team_2007
+    level: 1
+    tags: [driver, constructor]
+    question: Which team did Lewis Hamilton drive for in 2007?
+    sql: |
+      SELECT DISTINCT c.constructor_name
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      JOIN marts.dim_constructor AS c USING (constructor_id)
+      WHERE r.season = 2007 AND d.full_name = 'Lewis Hamilton'
+    expected:
+      - [McLaren]
+
+  # --- Driver counts -----------------------------------------------------------------
+  - id: nico_rosberg_wins
+    level: 2
+    tags: [metric]
+    question: How many Grand Prix did Nico Rosberg win?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Nico Rosberg'
+    expected:
+      - [23]
+
+  - id: hakkinen_wins
+    level: 2
+    tags: [metric, name_matching]
+    question: How many Grand Prix wins does Mika Hakkinen have?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Mika Häkkinen'
+    expected:
+      - [20]
+
+  - id: norris_wins
+    level: 2
+    tags: [metric]
+    question: How many Grand Prix has Lando Norris won?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Lando Norris'
+    expected:
+      - [4]
+
+  - id: hulkenberg_podiums
+    level: 2
+    tags: [metric, name_matching]
+    question: How many Grand Prix podiums did Nico Hulkenberg get?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_podium) AS podiums
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Nico Hülkenberg'
+    expected:
+      - [0]
+
+  # Known data issue, not used here: is_pole (fastest in qualifying) differs
+  # from the official pole after qualifying exclusions, grid penalties and in
+  # 2021, when the sprint winner took pole. The data gives Lewis Hamilton 107
+  # poles instead of the official 104; cases include Spain 2012 (excluded from
+  # qualifying) and Britain 2021 (pole went to the sprint winner).
+  - id: pole_italy_2024
+    level: 1
+    tags: [qualifying]
+    question: Who took pole position at the 2024 Italian Grand Prix?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_qualifying AS q
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2024 AND r.race_name = 'Italian Grand Prix' AND q.is_pole
+    expected:
+      - [Lando Norris]
+
+  - id: michael_schumacher_wins_2004
+    level: 2
+    tags: [metric]
+    question: How many races did Michael Schumacher win in 2004?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2004 AND d.full_name = 'Michael Schumacher'
+    expected:
+      - [13]
+
+  - id: most_wins_2024
+    level: 2
+    tags: [aggregation, ranking]
+    question: Which driver won the most Grand Prix in 2024, and how many?
+    sql: |
+      SELECT d.full_name, count(DISTINCT rr.race_id) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2024 AND rr.is_win
+      GROUP BY d.full_name
+      ORDER BY wins DESC
+      LIMIT 1
+    expected:
+      - [Max Verstappen, 9]
+
+  # --- Constructor counts ------------------------------------------------------------
+  - id: ferrari_constructors_titles
+    level: 2
+    tags: [standings, aggregation]
+    question: How many constructors' championships has Ferrari won?
+    sql: |
+      SELECT count(*) AS titles
+      FROM marts.fct_constructor_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_constructor AS c USING (constructor_id)
+      WHERE r.is_season_finale AND st.championship_position = 1
+        AND c.constructor_name = 'Ferrari'
+    expected:
+      - [16]
+
+  - id: ferrari_wins
+    level: 2
+    tags: [metric, constructor]
+    question: How many Grand Prix has Ferrari won?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_constructor AS c USING (constructor_id)
+      WHERE c.constructor_name = 'Ferrari'
+    expected:
+      - [248]
+
+  # --- En español --------------------------------------------------------------------
+  - id: es_campeon_1994
+    level: 1
+    language: es
+    tags: [standings]
+    question: ¿Quién fue el campeón de pilotos de 1994?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_driver_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 1994 AND r.is_season_finale AND st.championship_position = 1
+    expected:
+      - [Michael Schumacher]
+
+  - id: es_constructores_2005
+    level: 1
+    language: es
+    tags: [standings]
+    question: ¿Qué escudería ganó el campeonato de constructores de 2005?
+    sql: |
+      SELECT c.constructor_name
+      FROM marts.fct_constructor_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_constructor AS c USING (constructor_id)
+      WHERE r.season = 2005 AND r.is_season_finale AND st.championship_position = 1
+    expected:
+      - [Renault]
+
+  - id: es_ganador_monaco_1996
+    level: 1
+    language: es
+    tags: [race_winner]
+    question: ¿Quién ganó el Gran Premio de Mónaco de 1996?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 1996 AND r.race_name = 'Monaco Grand Prix' AND rr.is_win
+    expected:
+      - [Olivier Panis]
+
+  - id: es_ganador_argentina_1998
+    level: 1
+    language: es
+    tags: [race_winner]
+    question: ¿Quién ganó el Gran Premio de Argentina de 1998?
+    sql: |
+      SELECT d.full_name
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 1998 AND r.race_name = 'Argentine Grand Prix' AND rr.is_win
+    expected:
+      - [Michael Schumacher]
+
+  - id: es_carreras_2021
+    level: 1
+    language: es
+    tags: [calendar]
+    question: ¿Cuántos Grandes Premios se corrieron en la temporada 2021?
+    sql: |
+      SELECT count(*) AS races
+      FROM marts.dim_race
+      WHERE season = 2021
+    expected:
+      - [22]
+
+  - id: es_nacionalidad_alonso
+    level: 1
+    language: es
+    tags: [driver]
+    question: ¿De qué nacionalidad es Fernando Alonso?
+    sql: |
+      SELECT driver_nationality
+      FROM marts.dim_driver
+      WHERE full_name = 'Fernando Alonso'
+    expected:
+      - [Spanish]
+
+  - id: es_nacimiento_senna
+    level: 1
+    language: es
+    tags: [driver, dates]
+    question: ¿Cuál es la fecha de nacimiento de Ayrton Senna?
+    sql: |
+      SELECT date_of_birth
+      FROM marts.dim_driver
+      WHERE full_name = 'Ayrton Senna'
+    expected:
+      - ["1960-03-21"]
+
+  - id: es_victorias_reutemann
+    level: 2
+    language: es
+    tags: [metric]
+    question: ¿Cuántas carreras ganó Carlos Reutemann?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Carlos Reutemann'
+    expected:
+      - [12]
+
+  - id: es_victorias_montoya
+    level: 2
+    language: es
+    tags: [metric]
+    question: ¿Cuántos Grandes Premios ganó Juan Pablo Montoya?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Juan Pablo Montoya'
+    expected:
+      - [7]
+
+  - id: es_victorias_sainz
+    level: 2
+    language: es
+    tags: [metric]
+    question: ¿Cuántas victorias tiene Carlos Sainz en la Fórmula 1?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Carlos Sainz'
+    expected:
+      - [4]
+
+  - id: es_victorias_leclerc
+    level: 2
+    language: es
+    tags: [metric]
+    question: ¿Cuántos Grandes Premios ganó Charles Leclerc?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_win) AS wins
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Charles Leclerc'
+    expected:
+      - [8]
+
+  - id: es_poles_vettel
+    level: 2
+    language: es
+    tags: [metric, qualifying]
+    question: ¿Cuántas pole positions consiguió Sebastian Vettel?
+    sql: |
+      SELECT count(DISTINCT q.race_id) FILTER (WHERE q.is_pole) AS poles
+      FROM marts.fct_qualifying AS q
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE d.full_name = 'Sebastian Vettel'
+    expected:
+      - [57]
+
+  - id: es_largadas_colapinto_2024
+    level: 2
+    language: es
+    tags: [metric, rule_starts]
+    question: ¿Cuántas carreras largó Franco Colapinto en 2024?
+    sql: |
+      SELECT count(DISTINCT rr.race_id) FILTER (WHERE rr.is_race_start) AS starts
+      FROM marts.fct_race_results AS rr
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.season = 2024 AND d.full_name = 'Franco Colapinto'
+    expected:
+      - [9]
+
+  - id: es_titulos_fangio
+    level: 2
+    language: es
+    tags: [standings, name_matching]
+    question: ¿Cuántos campeonatos mundiales ganó Juan Manuel Fangio?
+    # The data stores him as 'Juan Fangio': the agent must search the surname.
+    sql: |
+      SELECT count(*) AS titles
+      FROM marts.fct_driver_standings AS st
+      JOIN marts.dim_race AS r USING (race_id)
+      JOIN marts.dim_driver AS d USING (driver_id)
+      WHERE r.is_season_finale AND st.championship_position = 1
+        AND d.full_name = 'Juan Fangio'
+    expected:
+      - [5]

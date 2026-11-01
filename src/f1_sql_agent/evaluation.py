@@ -1,20 +1,26 @@
 """Evaluation of the agent: questions with verified answers, and how to grade them.
 
-The set lives in eval/questions.yml. Each question has a reference ("gold")
-SQL query and the rows it must return. The metric is execution accuracy, as
-in the BIRD and Spider text-to-SQL benchmarks: an answer counts as correct
-when the result of the agent's SQL matches the expected rows.
+Two question sets, each with a reference ("gold") SQL query and the rows it
+must return for every question:
+- main (eval/questions.yml): 25 questions from lookups to window functions.
+- simple (eval/questions_simple.yml): many short lookups and counts, in
+  English and Spanish, cheap enough to run often.
 
-Commands:
+The metric is execution accuracy, as in the BIRD and Spider text-to-SQL
+benchmarks: an answer counts as correct when the result of the agent's SQL
+matches the expected rows.
+
+Commands (add --set simple for the simple set):
     uv run f1-eval check   # the gold SQL still returns the expected rows
     uv run f1-eval run     # ask the agent every question, save its answers
     uv run f1-eval score   # grade the saved answers, write a Markdown report
 
 `run` spends LLM tokens, so it saves one JSON line per question in
-eval/results/<model>.jsonl as soon as it is answered, and skips the questions
-already in that file: if the free tier runs out, run it again later and it
-continues where it stopped. Delete the file to start over. `score` costs
-nothing: it re-runs the agent's SQL on the database and can be repeated.
+eval/results/<model>.jsonl (eval/results/<set>/<model>.jsonl for other sets)
+as soon as it is answered, and skips the questions already in that file: if
+the free tier runs out, run it again later and it continues where it stopped.
+Delete the file to start over. `score` costs nothing: it re-runs the agent's
+SQL on the database and can be repeated.
 
 References: https://arxiv.org/abs/2305.03111 (BIRD, execution accuracy) and
 https://docs.anthropic.com/en/docs/test-and-evaluate/develop-tests
@@ -52,7 +58,11 @@ from f1_sql_agent.config import DATABASE_PATH, MAX_ROWS, PROJECT_ROOT, SEMANTIC_
 from f1_sql_agent.mcp_server import open_database
 from f1_sql_agent.semantic.layer import load_examples
 
-QUESTIONS_PATH = PROJECT_ROOT / "eval" / "questions.yml"
+QUESTION_SETS = {
+    "main": PROJECT_ROOT / "eval" / "questions.yml",
+    "simple": PROJECT_ROOT / "eval" / "questions_simple.yml",
+}
+QUESTIONS_PATH = QUESTION_SETS["main"]
 RESULTS_DIR = PROJECT_ROOT / "eval" / "results"
 # Decimals may differ by rounding (30.14 vs 30.1); integers must match exactly.
 REL_TOLERANCE = 0.005
@@ -67,6 +77,7 @@ class Question(BaseModel):
 
     id: str = Field(min_length=1)
     level: int = Field(ge=1, le=4)  # 1 lookup ... 4 window functions
+    language: str = Field(default="en", pattern=r"^[a-z]{2}$")  # of the question
     tags: tuple[str, ...] = ()
     question: str = Field(min_length=1)
     sql: str = Field(min_length=1)
@@ -170,6 +181,11 @@ def check(questions: Iterable[Question], con: duckdb.DuckDBPyConnection) -> int:
 
 
 # --- Running the agent --------------------------------------------------------
+
+
+def results_dir_for(question_set: str) -> Path:
+    """eval/results for the main set, eval/results/<set> for the others."""
+    return RESULTS_DIR if question_set == "main" else RESULTS_DIR / question_set
 
 
 def results_path(model_name: str, results_dir: Path = RESULTS_DIR) -> Path:
@@ -310,27 +326,34 @@ def render_report(
     questions: Sequence[Question],
     records: dict[str, dict[str, Any]],
     grades: dict[str, dict[str, Any]],
+    question_set: str = "main",
 ) -> str:
-    """Markdown report: accuracy (total and by level), cost, and each failure
-    with what was expected, what the agent got, its SQL and its answer."""
+    """Markdown report: accuracy (total, by level and, when the set mixes
+    languages, by language), cost, and each failure with what was expected,
+    what the agent got, its SQL and its answer."""
     graded = [q for q in questions if q.id in grades]
     ok = [q for q in graded if grades[q.id]["status"] == "correct"]
     not_run = len(questions) - len(graded)
+    title = model_name if question_set == "main" else f"{model_name} ({question_set})"
     lines = [
-        f"# Evaluation: {model_name}",
+        f"# Evaluation: {title}",
         "",
         f"Execution accuracy: **{len(ok)}/{len(graded)}** ({_pct(len(ok), len(graded))})"
         + (f". Questions not run yet: {not_run}." if not_run else "."),
-        "",
-        "| Level | Correct | Accuracy |",
-        "|---|---|---|",
     ]
-    for level in sorted({q.level for q in questions}):
-        in_level = [q for q in graded if q.level == level]
-        hits = sum(grades[q.id]["status"] == "correct" for q in in_level)
-        lines.append(
-            f"| {level} | {hits}/{len(in_level)} | {_pct(hits, len(in_level))} |"
-        )
+
+    def breakdown(name: str, key: str) -> None:
+        lines.extend(["", f"| {name} | Correct | Accuracy |", "|---|---|---|"])
+        for value in sorted({getattr(q, key) for q in questions}):
+            group = [q for q in graded if getattr(q, key) == value]
+            hits = sum(grades[q.id]["status"] == "correct" for q in group)
+            lines.append(
+                f"| {value} | {hits}/{len(group)} | {_pct(hits, len(group))} |"
+            )
+
+    breakdown("Level", "level")
+    if len({q.language for q in questions}) > 1:
+        breakdown("Language", "language")
 
     runs = [records[q.id] for q in graded]
     if runs:
@@ -416,7 +439,7 @@ def _check_command(questions: list[Question]) -> None:
 
 def _run_command(questions: list[Question], args: argparse.Namespace) -> None:
     model_name = resolve_model_name(args.model)
-    path = results_path(model_name)
+    path = results_path(model_name, results_dir_for(args.set))
     if args.only:
         unknown = set(args.only) - {q.id for q in questions}
         if unknown:
@@ -436,7 +459,7 @@ def _run_command(questions: list[Question], args: argparse.Namespace) -> None:
 
 def _score_command(questions: list[Question], args: argparse.Namespace) -> None:
     model_name = resolve_model_name(args.model)
-    path = results_path(model_name)
+    path = results_path(model_name, results_dir_for(args.set))
     records = {record["id"]: record for record in load_results(path)}
     if not records:
         sys.exit(f"No results in {path}: run `uv run f1-eval run` first.")
@@ -444,7 +467,7 @@ def _score_command(questions: list[Question], args: argparse.Namespace) -> None:
         grades = {
             q.id: grade(q, records[q.id], con) for q in questions if q.id in records
         }
-    report = render_report(model_name, questions, records, grades)
+    report = render_report(model_name, questions, records, grades, args.set)
     report_path = path.with_suffix(".md")
     report_path.write_text(report, encoding="utf-8")
     # The summary is the report up to the per-question table.
@@ -456,23 +479,37 @@ def main() -> None:
     """Entry point for `uv run f1-eval`."""
     load_dotenv()  # GROQ_API_KEY and F1_AGENT_MODEL, for `run`
     parser = argparse.ArgumentParser(prog="f1-eval", description=__doc__.split("\n")[0])
+    # Options shared by every command.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument(
+        "--set",
+        choices=sorted(QUESTION_SETS),
+        default="main",
+        help="question set (default: main)",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser(
-        "check", help="check that the gold SQL returns the expected rows"
+        "check",
+        parents=[common],
+        help="check that the gold SQL returns the expected rows",
     )
     run = commands.add_parser(
-        "run", help="ask the agent the pending questions and save its answers"
+        "run",
+        parents=[common],
+        help="ask the agent the pending questions and save its answers",
     )
     run.add_argument("--model", help='"provider:model" (default: F1_AGENT_MODEL)')
     run.add_argument("--only", nargs="+", metavar="ID", help="only these question ids")
     run.add_argument("--limit", type=int, help="at most this many pending questions")
     score = commands.add_parser(
-        "score", help="grade the saved answers and write a Markdown report"
+        "score",
+        parents=[common],
+        help="grade the saved answers and write a Markdown report",
     )
     score.add_argument("--model", help='"provider:model" (default: F1_AGENT_MODEL)')
     args = parser.parse_args()
 
-    questions = load_questions()
+    questions = load_questions(QUESTION_SETS[args.set])
     if args.command == "check":
         _check_command(questions)
     elif args.command == "run":
