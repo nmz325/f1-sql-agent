@@ -5,11 +5,18 @@ answered on its own (no memory of earlier questions). Under each answer the
 page shows the steps of the agent, its final query and the rows that query
 returns, so the answer can be checked instead of trusted.
 
+On a public deployment the Groq key is shared by every visitor, so the page
+saves its quota: repeated questions are answered from memory, each visitor
+can send F1_QUESTION_LIMIT questions per visit, and when the main model's
+quota runs out the agent switches to F1_FALLBACK_MODEL, which has its own.
+
 Reference: https://docs.streamlit.io/develop/api-reference/chat
 """
 
 import asyncio
+import os
 import time
+import unicodedata
 from typing import Any
 
 import duckdb
@@ -22,6 +29,11 @@ from f1_sql_agent.config import DATABASE_PATH, MAX_ROWS
 from f1_sql_agent.evaluation import summarize_run
 from f1_sql_agent.mcp_server import open_database
 
+REPO_URL = "https://github.com/nmz325/f1-sql-agent"
+# Questions each visitor may send per visit; unset (local use) means no limit.
+QUESTION_LIMIT = int(os.environ.get("F1_QUESTION_LIMIT") or 0) or None
+# Used when the main model's quota runs out; Groq counts quotas per model.
+FALLBACK_MODEL = os.environ.get("F1_FALLBACK_MODEL", "groq:openai/gpt-oss-20b")
 EXAMPLES = (
     "Who won the 2016 drivers' championship, and by how many points?",
     "\u00bfQu\u00e9 constructor gan\u00f3 m\u00e1s carreras en los a\u00f1os 80?",
@@ -83,8 +95,8 @@ def show_intro() -> None:
     )
 
 
-async def _ask(question: str) -> tuple[str, list[Any]]:
-    async with open_agent() as graph:
+async def _ask(question: str, model_name: str | None) -> tuple[str, list[Any]]:
+    async with open_agent(model_name) as graph:
         return await run_question(graph, question)
 
 
@@ -116,13 +128,14 @@ def _final_rows(sql: str) -> list[dict[str, Any]] | None:
     return [dict(zip(columns, row, strict=True)) for row in rows]
 
 
-def ask_agent(question: str) -> dict[str, Any]:
+def ask_agent(question: str, model_name: str | None = None) -> dict[str, Any]:
     """Ask the agent and keep what the page shows: answer, steps and evidence."""
     started = time.perf_counter()
-    answer, messages = asyncio.run(_ask(question))
+    answer, messages = asyncio.run(_ask(question, model_name))
     run = summarize_run(messages)
     return {
         "question": question,
+        "model": resolve_model_name(model_name),
         "answer": answer,
         "sql": run["sql"],
         "rows": _final_rows(run["sql"]) if run["sql"] else None,
@@ -138,6 +151,46 @@ def _root_cause(exc: BaseException) -> BaseException:
     while isinstance(exc, BaseExceptionGroup) and len(exc.exceptions) == 1:
         exc = exc.exceptions[0]
     return exc
+
+
+def _is_rate_limit(exc: BaseException) -> bool:
+    return type(_root_cause(exc)).__name__ == "RateLimitError"
+
+
+@st.cache_resource
+def answer_store() -> dict[str, dict[str, Any]]:
+    """Answers shared by every visitor of this server: a repeated question,
+    such as an example from the sidebar, costs no tokens the second time."""
+    return {}
+
+
+def _question_key(question: str) -> str:
+    """The same question typed differently: case, accents, spaces, '?'."""
+    text = unicodedata.normalize("NFKD", question)
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return " ".join(text.casefold().split()).strip("?¿!. ")
+
+
+def is_known(question: str) -> bool:
+    return _question_key(question) in answer_store()
+
+
+def answer(question: str) -> dict[str, Any]:
+    """A saved answer if the question was asked before, else ask the agent,
+    switching to the fallback model if the main one is out of quota."""
+    store, key = answer_store(), _question_key(question)
+    if key in store:
+        return {**store[key], "question": question, "cached": True}
+    try:
+        turn = ask_agent(question)
+    except Exception as exc:
+        if not _is_rate_limit(exc) or FALLBACK_MODEL == resolve_model_name():
+            raise
+        turn = ask_agent(question, FALLBACK_MODEL)
+    if turn["sql"]:  # only answers backed by a query are worth repeating
+        store[key] = turn
+    st.session_state.asked += 1
+    return turn
 
 
 # The agent answers wearing a racing helmet.
@@ -162,12 +215,16 @@ def show_turn(turn: dict[str, Any]) -> None:
             chart = ui.chart_for(pd.DataFrame(turn["rows"]))
             if chart is not None:
                 st.altair_chart(chart, width="stretch")
-        # What the answer cost, as small tags.
-        st.markdown(
-            f":gray-badge[:material/smart_toy: {turn['llm_calls']} LLM calls] "
-            f":gray-badge[:material/token: {turn['tokens']:,} tokens] "
-            f":gray-badge[:material/timer: {turn['seconds']:.0f} s]"
-        )
+        # Which model answered and what it cost, as small tags.
+        tags = [
+            f":gray-badge[:material/memory: {turn.get('model', '').split('/')[-1]}]",
+            f":gray-badge[:material/smart_toy: {turn['llm_calls']} LLM calls]",
+            f":gray-badge[:material/token: {turn['tokens']:,} tokens]",
+            f":gray-badge[:material/timer: {turn['seconds']:.0f} s]",
+        ]
+        if turn.get("cached"):
+            tags.append(":blue-badge[:material/bolt: Saved answer, no tokens spent]")
+        st.markdown(" ".join(tags))
         with st.expander("How this answer was computed", icon=":material/search:"):
             st.markdown("**Agent steps**")
             steps = [f"{n}. {step}" for n, step in enumerate(turn["steps"], start=1)]
@@ -204,12 +261,25 @@ with st.sidebar:
     )
     st.divider()  # before the author links that app.py adds
 
-if "turns" not in st.session_state:
-    st.session_state.turns = []
+st.session_state.setdefault("turns", [])
+st.session_state.setdefault("asked", 0)  # questions that reached the LLM
+limit_reached = QUESTION_LIMIT is not None and st.session_state.asked >= QUESTION_LIMIT
+if QUESTION_LIMIT is not None:
+    st.sidebar.caption(
+        f"Questions left in this visit: {max(QUESTION_LIMIT - st.session_state.asked, 0)}"
+        f" of {QUESTION_LIMIT}."
+    )
+
 # The chat input stays pinned to the bottom wherever it is called; reading it
 # first lets the intro disappear as soon as the first question is sent.
 clicked = next((ex for ex, hit in zip(EXAMPLES, clicks, strict=True) if hit), None)
-question = st.chat_input("Ask a question about F1 history") or clicked
+typed = st.chat_input(
+    "Question limit reached for this visit"
+    if limit_reached
+    else "Ask a question about F1 history",
+    disabled=limit_reached,
+)
+question = typed or clicked
 if not st.session_state.turns and not question:
     show_intro()
 for turn in st.session_state.turns:
@@ -219,19 +289,27 @@ if question:
     with st.chat_message("user"):
         st.markdown(question)
     with st.chat_message("assistant", avatar=AGENT_AVATAR):
-        lights = st.empty()
-        lights.html(START_LIGHTS)
-        try:
-            new_turn = ask_agent(question)
-        except Exception as exc:  # noqa: BLE001 - show any failure on the page
-            error = _root_cause(exc)
-            if type(error).__name__ == "RateLimitError":
-                st.error("The Groq free tier is used up for now. Try again later.")
-            else:
-                st.error(f"Something went wrong: {error!r}")
-            new_turn = None
-        finally:
-            lights.empty()
+        new_turn = None
+        if limit_reached and not is_known(question):
+            st.info(
+                f"This public demo answers {QUESTION_LIMIT} new questions per visit, "
+                "to share its free LLM quota. Questions already answered still "
+                f"work, and you can run your own copy: [{REPO_URL}]({REPO_URL})."
+            )
+        else:
+            lights = st.empty()
+            lights.html(START_LIGHTS)
+            try:
+                new_turn = answer(question)
+            except Exception as exc:  # noqa: BLE001 - show any failure on the page
+                if _is_rate_limit(exc):
+                    st.error(
+                        "The free LLM quota is used up for now. Try again in a while."
+                    )
+                else:
+                    st.error(f"Something went wrong: {_root_cause(exc)!r}")
+            finally:
+                lights.empty()
     if new_turn is not None:
         st.session_state.turns.append(new_turn)
         st.rerun()  # draw the history again, now with the new answer

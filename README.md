@@ -130,6 +130,26 @@ uv run f1-eval score --set simple # grade the saved answers, write a report
 uv run pytest                     # tests (no LLM, no network)
 ```
 
+## Deploy
+
+The app runs on [Streamlit Community Cloud](https://share.streamlit.io) as is:
+it installs the dependencies from `uv.lock` and, on the first visit, downloads
+the data and runs `dbt build` (about a minute). To publish your own copy:
+
+1. Fork this repository and sign in to Streamlit Community Cloud with GitHub.
+2. Create an app from the fork: branch `main`, main file `app.py`.
+3. In **Advanced settings**, choose Python 3.13 and paste the secrets:
+
+   ```toml
+   GROQ_API_KEY = "your-key"
+   F1_QUESTION_LIMIT = "5"   # new questions per visitor, to share the free quota
+   ```
+
+The public app saves its LLM quota: repeated questions are answered from
+memory, each visitor gets `F1_QUESTION_LIMIT` new questions per visit, and
+when the main model runs out of quota it switches to `F1_FALLBACK_MODEL`
+(`gpt-oss-20b` by default), which has its own.
+
 ## Project structure
 
 ```

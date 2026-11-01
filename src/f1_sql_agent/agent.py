@@ -25,7 +25,6 @@ import asyncio
 import json
 import logging
 import os
-import shutil
 import sys
 import time
 from collections.abc import AsyncIterator
@@ -242,14 +241,24 @@ async def load_context(client: Client) -> tuple[list[dict[str, Any]], str]:
 
 
 def server_parameters() -> StdioServerParameters:
-    """How to launch our MCP server as a subprocess (stdio transport)."""
-    command = shutil.which("f1-mcp")  # the console script installed by uv sync
-    if command is None:
-        raise RuntimeError("f1-mcp not found: run the agent with `uv run`.")
+    """How to launch our MCP server as a subprocess (stdio transport).
+
+    With the Python running us, as a module, so it works wherever the app
+    runs: under `uv run`, or on a host that never put `f1-mcp` on the PATH.
+    """
     env = get_default_environment()  # the server does not get our secrets
     if "F1_DATA_DIR" in os.environ:
         env["F1_DATA_DIR"] = os.environ["F1_DATA_DIR"]
-    return StdioServerParameters(command=command, env=env, cwd=PROJECT_ROOT)
+    # Find the package even where it is not installed, only checked out.
+    env["PYTHONPATH"] = os.pathsep.join(
+        filter(None, [str(PROJECT_ROOT / "src"), os.environ.get("PYTHONPATH")])
+    )
+    return StdioServerParameters(
+        command=sys.executable,
+        args=["-m", "f1_sql_agent.mcp_server"],
+        env=env,
+        cwd=PROJECT_ROOT,
+    )
 
 
 def resolve_model_name(model_name: str | None = None) -> str:

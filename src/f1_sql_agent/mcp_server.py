@@ -340,3 +340,9 @@ def main() -> None:
     layer = load_semantic_layer(MANIFEST_PATH, SEMANTIC_DIR)
     with open_database(DATABASE_PATH) as con:
         build_server(layer, con).run("stdio")
+
+
+if (
+    __name__ == "__main__"
+):  # python -m f1_sql_agent.mcp_server (how the agent starts it)
+    main()

@@ -5,6 +5,8 @@ our real one: its run_query only accepts `SELECT 1`, any other SQL fails.
 """
 
 import asyncio
+import os
+import sys
 from typing import Any
 
 from langchain_core.language_models.fake_chat_models import GenericFakeChatModel
@@ -21,7 +23,9 @@ from f1_sql_agent.agent import (
     build_graph,
     load_context,
     run_question,
+    server_parameters,
 )
+from f1_sql_agent.config import PROJECT_ROOT
 
 fake_server = MCPServer("fake-f1")
 
@@ -143,6 +147,15 @@ def test_run_question_returns_the_answer_and_the_messages() -> None:
     assert answer == "It is 1."
     # user, LLM tool call, tool result, answer
     assert [m.type for m in messages] == ["human", "ai", "tool", "ai"]
+
+
+def test_server_starts_with_our_python_as_a_module() -> None:
+    # No console script needed on the PATH, so it also runs on cloud hosts.
+    params = server_parameters()
+    assert params.command == sys.executable
+    assert params.args == ["-m", "f1_sql_agent.mcp_server"]
+    assert params.env["PYTHONPATH"].split(os.pathsep)[0] == str(PROJECT_ROOT / "src")
+    assert "GROQ_API_KEY" not in params.env  # the server never sees the key
 
 
 def test_step_limit_keeps_the_messages_so_far() -> None:
